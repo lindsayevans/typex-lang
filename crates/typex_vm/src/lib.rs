@@ -689,6 +689,8 @@ impl Vm {
                 .get(&field.name)
                 .cloned()
                 .ok_or_else(|| RuntimeError::new(format!("no field '{}'", field.name))),
+            Value::Array(els) if field.name == "length" => Ok(Value::Uint(els.len() as u64)),
+            Value::Str(s) if field.name == "length" => Ok(Value::Uint(s.chars().count() as u64)),
             Value::Ok(inner) if field.name == "value" => Ok(*inner.clone()),
             Value::Err(inner) if field.name == "message" => Ok(*inner.clone()),
             _ => Err(RuntimeError::new(format!(

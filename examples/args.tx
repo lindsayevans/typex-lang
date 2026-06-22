@@ -1,5 +1,6 @@
-function main(argv: Array<string>): int {
-    println("argv[0]: {}", argv[0]);
-    println("argv[1]: {}", argv[1]);
-    return 0;
+function main(argv: Array<string>) {
+    println("argc: {}", argv.length);
+    for (let { index, value } in argv) {
+        println("argv[{}]: {}", index, value);
+    }
 }
