@@ -1,0 +1,41 @@
+import { readFile, writeFile, exists } from "tx:fs";
+import { sqrt, abs, pow, floor, ceil, round, min, max } from "tx:math";
+
+function main(): int {
+    // math examples
+    const sqrtResult: float = match sqrt(16.0) {
+        Ok(n) => n,
+        Err(e) => 0.0,
+    };
+    println("sqrt(16) = {}", sqrtResult);
+
+    const absResult: int = abs(-42);
+    println("abs(-42) = {}", absResult);
+
+    const powResult: float = pow(2.0, 10.0);
+    println("pow(2, 10) = {}", powResult);
+
+    println("floor(3.7) = {}", floor(3.7));
+    println("ceil(3.2) = {}", ceil(3.2));
+    println("round(3.5) = {}", round(3.5));
+    println("min(3, 7) = {}", min(3, 7));
+    println("max(3, 7) = {}", max(3, 7));
+
+    // fs examples
+    const writeResult: int = match writeFile("examples/output.txt", "Hello from TypeX!") {
+        Ok(n) => 1,
+        Err(e) => 0,
+    };
+    println("writeFile result = {}", writeResult);
+
+    const readResult: string = match readFile("README.md") {
+        Ok(s) => s,
+        Err(e) => "error",
+    };
+    println("readFile result = {}", readResult);
+
+    const fileExists: boolean = exists("examples/output.txt");
+    println("exists = {}", fileExists);
+
+    return 0;
+}

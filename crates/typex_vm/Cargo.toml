@@ -1,0 +1,11 @@
+[package]
+name = "typex_vm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+typex_ast     = { path = "../typex_ast" }
+typex_span    = { path = "../typex_span" }
+typex_runtime = { path = "../typex_runtime" }
+typex_parser  = { path = "../typex_parser" }
+typex_std     = { path = "../typex_std" }

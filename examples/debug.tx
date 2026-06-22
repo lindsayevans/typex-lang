@@ -1,0 +1,33 @@
+function add(a: int, b: int): int {
+    return a + b;
+}
+
+function double(n: int): int {
+    return n + n;
+}
+
+function fib(n: int): int {
+    if (n <= 1) {
+        return n;
+    }
+    const a: int = fib(n - 1);
+    const b: int = fib(n - 2);
+    println("fib({}) = {} + {}", n, a, b);
+    return a + b;
+}
+
+function main(): int {
+    const x: int = add(3, 4);
+    println("add(3, 4) = {}", x);
+
+    const y: int = double(5);
+    println("double(5) = {}", y);
+
+    const z: int = add(double(2), double(3));
+    println("add(double(2), double(3)) = {}", z);
+
+    const f3: int = fib(3);
+    println("fib(3) = {}", f3);
+
+    return 0;
+}

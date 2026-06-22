@@ -1,0 +1,15 @@
+[package]
+name = "typex_codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+typex_ast     = { path = "../typex_ast" }
+typex_span    = { path = "../typex_span" }
+typex_runtime = { path = "../typex_runtime" }
+cranelift-codegen  = { version = "0.113" }
+cranelift-frontend = { version = "0.113" }
+cranelift-module   = { version = "0.113" }
+cranelift-native   = { version = "0.113" }
+cranelift-object   = { version = "0.113" }
+target-lexicon     = { version = "0.12" }

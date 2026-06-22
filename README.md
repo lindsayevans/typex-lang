@@ -1,0 +1,861 @@
+# TypeX
+
+> Vibe-coding my own interpreter/compiler, because YOLO.
+
+**TypeX** is an experimental, strictly typed programming language loosely inspired by TypeScript, with some nice bits borrowed from Rust.
+
+It aims to feel familiar to TypeScript developers while avoiding JavaScript runtime baggage: no `Number`, no `undefined`, no `var`, no default exports, no loose equality, and no exception-based error handling.
+
+TypeX source files use the `.tx` extension.
+
+```tx
+function main(argv: Array<string>): int {
+    println("Hello from TypeX!");
+
+    for (let {index, value} in argv) {
+        println("[{index}]: {value}");
+    }
+
+    return 0;
+}
+```
+
+## Status
+
+TypeX is currently an experimental language design and implementation project.
+
+The goal is to build:
+
+- a script runner / REPL for fast iteration: `tx run` / `txs`
+- a native compiler for distributable binaries: `tx build` / `txc`
+- a standard library for practical scripting and application development
+- eventually, enough language maturity for systems programming and self-hosting
+
+This is not production-ready. Syntax, semantics, runtime behaviour, and tooling are expected to change.
+
+## Goals
+
+| Version | Goal                                                                                                 |
+| ------- | ---------------------------------------------------------------------------------------------------- |
+| v1      | Safe native scripting and application language                                                       |
+| v2      | Async, OOP, richer standard library, formatting/linting/testing/package tooling                      |
+| v3      | Systems layer: FFI, explicit resource management, unsafe blocks, low-level memory/control primitives |
+| v4      | Self-hosting                                                                                         |
+
+## Design Philosophy
+
+TypeX is designed around a few core ideas:
+
+- **Strict by default**: no implicit coercion, no loose equality, no `undefined`
+- **Familiar syntax**: TypeScript-like types, functions, imports, arrays, records, and arrow functions
+- **Rust-inspired safety**: `Result<T, E>`, `match`, `panic`, enums, explicit error handling
+- **Native-first tooling**: run scripts quickly, compile binaries when needed
+- **Unicode-aware strings**: UTF-8 strings with no unsafe index access
+- **Small core, richer later**: start practical, grow toward systems programming over time
+
+## Quick Example
+
+```tx
+import { fs } from "std/fs";
+
+function divide(numerator: int, denominator: int): Result<int, string> {
+    if (denominator == 0) {
+        return Err("Cannot divide by zero!");
+    }
+
+    return Ok(numerator / denominator);
+}
+
+function main(argv: Array<string>): int {
+    match divide(10, 2) {
+        Ok(result) => println("Success! The answer is: {result}"),
+        Err(error) => println("Error occurred: {error}"),
+    };
+
+    const greeting = match fs.read("hello.txt") {
+        Ok(file) => file.content,
+        Err(error) => panic("Problem opening the file: {}", error.message),
+    };
+
+    println("{greeting}");
+
+    return 0;
+}
+```
+
+## Toolchain
+
+The planned primary CLI is `tx`.
+
+```sh
+tx run                 # starts a REPL session
+tx run foo.tx          # executes foo.tx
+tx build foo.tx        # compiles foo.tx to a native binary
+```
+
+Aliases may also be provided:
+
+```sh
+txs foo.tx             # run script
+txc foo.tx             # compile script
+```
+
+Future tooling:
+
+```sh
+tx fmt                 # format .tx files
+tx lint                # lint .tx files
+tx test                # run tests
+tx new foo             # scaffold a new project
+tx add <pkg>           # add a package dependency
+```
+
+## Language Overview
+
+### Primitive Types
+
+TypeX has explicit primitive types.
+
+```tx
+let active: boolean = true;
+
+let a: int8 = -12;
+let b: uint8 = 255;
+
+let c: int32 = 123;
+let d: uint64 = 999;
+
+let x: float32 = 3.14;
+let y: float64 = 3.1415926535;
+
+let ch: char = 'λ';
+let name: string = "Zaphod Beeblebrox";
+```
+
+Numeric types:
+
+```text
+int8    uint8
+int16   uint16
+int32   uint32
+int64   uint64
+
+float32
+float64
+```
+
+Aliases:
+
+```text
+int   = int64
+uint  = uint64
+float = float64
+```
+
+There is no JavaScript-style `Number`.
+
+### Characters and Strings
+
+```tx
+let ch: char = 'A';
+let message: string = "Hello, TypeX!";
+```
+
+TypeX strings are UTF-8.
+
+Strings do not support direct index access:
+
+```tx
+// Not allowed:
+const first = message[0];
+```
+
+Instead, string access and modification are handled through standard library functions and iteration APIs.
+
+```tx
+for (let {index, value} in message) {
+    println("[{index}]: {value}");
+}
+```
+
+Byte offsets can also be exposed:
+
+```tx
+for (let {index, offset, value} in message) {
+    println("[{index}] byte {offset}: {value}");
+}
+```
+
+Intended iteration fields:
+
+| Field    | Type   | Meaning                      |
+| -------- | ------ | ---------------------------- |
+| `index`  | `uint` | character/scalar index       |
+| `offset` | `uint` | UTF-8 byte offset            |
+| `value`  | `char` | current Unicode scalar value |
+
+### Nullability
+
+TypeX has `null`, but values are non-nullable by default.
+
+```tx
+let name: string = "Arthur";
+let missing: string | null = null;
+```
+
+There is no `undefined`.
+
+Nullable values must be opted into explicitly:
+
+```tx
+function findName(id: uint): string | null {
+    if (id == 42) {
+        return "Zaphod";
+    }
+
+    return null;
+}
+```
+
+### Date and Time
+
+TypeX aims to include proper date/time primitives rather than a single legacy-style date object.
+
+Planned v1 date/time types:
+
+```text
+Date
+Time
+DateTime
+```
+
+v1 is planned to use a simplified UTC-only API.
+
+Future versions may add fuller timezone support, calendar handling, and richer date/time operations.
+
+### Arrays
+
+Arrays are represented with `Array<T>`.
+
+```tx
+const numbers: Array<int> = [1, 2, 3, 4];
+
+const doubled = numbers.map((n: int): int => n * 2);
+const evens = numbers.filter((n: int): boolean => n % 2 == 0);
+```
+
+Array iteration supports destructuring:
+
+```tx
+for (let {index, value} in numbers) {
+    println("[{index}]: {value}");
+}
+```
+
+You can destructure only the fields you need:
+
+```tx
+for (let {value} in numbers) {
+    println("{value}");
+}
+
+for (let {index} in numbers) {
+    println("{index}");
+}
+```
+
+### Records
+
+`Record<K, V>` represents a dynamic key-value map.
+
+```tx
+const person: Record<string, string | uint> = {
+    name: "Zaphod Beeblebrox",
+    age: 42,
+};
+```
+
+Rules:
+
+- `K` must be a hashable primitive type
+- valid key types include strings, numerics, and enums
+- `V` can be any type
+
+Record iteration:
+
+```tx
+for (let {key, value} of person) {
+    println("{key}: {value}");
+}
+```
+
+Record iteration order is not guaranteed.
+
+### Object Types
+
+TypeX supports TypeScript-style object type aliases.
+
+```tx
+type User = {
+    id: uint,
+    name: string,
+    email: string | null,
+};
+
+const user: User = {
+    id: 1,
+    name: "Ada",
+    email: null,
+};
+```
+
+### Union Types
+
+Union types are written with `|`.
+
+```tx
+type Status = "pending" | "approved" | "rejected";
+
+let status: Status = "pending";
+let maybeName: string | null = null;
+```
+
+### Enums
+
+TypeX enums are inspired by Rust and TypeScript.
+
+Simple numeric enums auto-increment from `0` by default:
+
+```tx
+enum Flags {
+    Read,
+    Write,
+}
+
+Flags.Read;  // 0
+Flags.Write; // 1
+```
+
+Explicit numeric values are supported:
+
+```tx
+enum Options {
+    Optimised,
+    Strict = 7,
+    Debug,
+    DryRun = 77,
+}
+
+Options.Optimised; // 0
+Options.Strict;    // 7
+Options.Debug;     // 8
+Options.DryRun;    // 77
+```
+
+String enums are supported:
+
+```tx
+enum Colours {
+    Red = "#f00",
+    Green = "#0f0",
+    Blue = "#00f",
+}
+
+print("red: {}", Colours.Red);
+```
+
+Reverse lookup is planned for string enums:
+
+```tx
+Colours["#0f0"] == Colours.Green; // true
+Colours["#00f"] == Colours.Red;   // false
+```
+
+Rust-style enums with associated data are also part of the language direction:
+
+```tx
+enum ParseError {
+    MissingField(string),
+    InvalidNumber(string),
+}
+```
+
+Enums can be matched exhaustively with `match`.
+
+### Result and Error Handling
+
+TypeX does not use exception-style `try` / `catch`.
+
+Recoverable errors are represented with `Result<T, E>`.
+
+```tx
+function divide(numerator: int, denominator: int): Result<int, string> {
+    if (denominator == 0) {
+        return Err("Cannot divide by zero!");
+    }
+
+    return Ok(numerator / denominator);
+}
+```
+
+Use `match` to handle success and failure:
+
+```tx
+match divide(10, 0) {
+    Ok(result) => println("Success! The answer is: {result}"),
+    Err(error) => println("Error occurred: {error}"),
+};
+```
+
+`match` can also be used as an expression:
+
+```tx
+const greeting = match fs.read("hello.txt") {
+    Ok(file) => file.content,
+    Err(error) => panic("Problem opening the file: {}", error.message),
+};
+```
+
+### Pattern Matching
+
+`match` is used for exhaustive matching over `Result` and enums.
+
+```tx
+enum Status {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+function label(status: Status): string {
+    return match status {
+        Status.Pending => "Pending",
+        Status.Approved => "Approved",
+        Status.Rejected => "Rejected",
+    };
+}
+```
+
+`switch` is intended for primitive value dispatch.
+
+### Functions
+
+Named functions use the `function` keyword.
+
+```tx
+function isAnswer(n: int32): boolean {
+    return n == 42;
+}
+```
+
+Arrow functions are supported.
+
+```tx
+const isAnswer = (n: int32): boolean => {
+    return n == 42;
+};
+```
+
+Expression-bodied arrow functions are also supported.
+
+```tx
+const isAnswer = (n: int32): boolean => n == 42;
+```
+
+### Generics
+
+Basic generics are planned for v1.
+
+```tx
+function first<T>(items: Array<T>): T | null {
+    if (items.length == 0) {
+        return null;
+    }
+
+    return items[0];
+}
+```
+
+### Destructuring
+
+Array destructuring:
+
+```tx
+let [first, second] = getThings();
+```
+
+Object destructuring:
+
+```tx
+let {foo, bar} = getThing();
+```
+
+### Variables
+
+TypeX has `let` and `const`.
+
+```tx
+let count: int = 0;
+count = count + 1;
+
+const name: string = "Ford";
+```
+
+There is no `var`.
+
+### Equality
+
+TypeX has strict equality only.
+
+```tx
+1 == 1;       // true
+1 == "1";     // type error
+```
+
+There is no loose equality.
+
+For complex/reference types, equality is reference-based unless otherwise specified.
+
+```tx
+const a = [1, 2, 3];
+const b = [1, 2, 3];
+
+a == b;              // false if different array references
+Array.equals(a, b);  // value comparison
+```
+
+A deep equality helper may be provided by the standard library later.
+
+### Control Flow
+
+Basic control flow:
+
+```tx
+if (age >= 18) {
+    println("Adult");
+} else if (age > 12) {
+    println("Teenager");
+} else {
+    println("Child");
+}
+```
+
+Ternary expressions:
+
+```tx
+const status = age >= 18 ? "Adult" : "Minor";
+```
+
+Switch statements:
+
+```tx
+switch code {
+    case 200:
+        println("OK");
+    case 404:
+        println("Not found");
+    default:
+        println("Unknown");
+}
+```
+
+### Loops
+
+Array iteration:
+
+```tx
+for (let {index, value} in array) {
+    println("[{index}]: {value}");
+}
+```
+
+Record iteration:
+
+```tx
+for (let {key, value} of record) {
+    println("{key}: {value}");
+}
+```
+
+Object-style iteration is planned, with iteration order not guaranteed.
+
+```tx
+for (let x of object) {
+    print(x.key);
+}
+```
+
+### Formatting and Builtins
+
+TypeX includes Rust-inspired formatting helpers.
+
+```tx
+print("hi {} {} {}, {name}", 1, "two", 3.1415);
+println("Hello {name}{}", "!");
+```
+
+Planned builtins:
+
+```tx
+print("message");
+println("message");
+panic("message: {err.message}");
+```
+
+`panic` exits with a failure code and is intended for unrecoverable errors.
+
+The REPL also supports:
+
+```tx
+quit();
+quit(1);
+```
+
+`quit` is REPL-only and exits to the shell.
+
+### Modules
+
+TypeX uses named imports and exports only.
+
+There are no default exports.
+
+```tx
+// math.tx
+export function add(a: int, b: int): int {
+    return a + b;
+}
+```
+
+```tx
+// main.tx
+import { add } from "./math.tx";
+
+function main(argv: Array<string>): int {
+    println("{}", add(1, 2));
+    return 0;
+}
+```
+
+### Entrypoint
+
+If a file defines:
+
+```tx
+function main(argv: Array<string>): int {
+    return 0;
+}
+```
+
+then `main` is called with command-line arguments.
+
+For example:
+
+```sh
+tx run foo.tx 1 2 3
+```
+
+is equivalent to:
+
+```tx
+main(["foo.tx", "1", "2", "3"]);
+```
+
+Entrypoint behaviour:
+
+- if `main` returns an integer, that value is used as the exit code
+- if `main` has no return value, success is assumed
+- if the program panics, the process exits with a failure code
+
+## Semicolons
+
+Semicolons are required to end expressions.
+
+```tx
+const name = "Trillian";
+println("Hello {name}");
+```
+
+## Standard Library
+
+The TypeX standard library is planned to be implemented in Rust and exposed to TypeX programs.
+
+v1 standard library goals:
+
+- IO
+- filesystem
+- basic math
+- arrays
+- strings
+- result helpers
+- date/time primitives
+
+v2 standard library goals:
+
+- networking
+- DNS
+- HTTP
+- cryptography
+- advanced math
+- regular expressions
+- JSON serialization/deserialization
+- testing
+- linting
+- formatting
+- package management
+
+## Compiler and Runtime
+
+TypeX is planned to be implemented in Rust.
+
+The toolchain is split into reusable crates so that the interpreter, compiler, REPL, and future tooling can share the same parser, resolver, typechecker, and intermediate representation.
+
+Native code generation is planned to use Cranelift.
+
+## Rust Crates
+
+Planned crate layout:
+
+| Crate             | Purpose                                                        |
+| ----------------- | -------------------------------------------------------------- |
+| `typex_lexer`     | Lexing                                                         |
+| `typex_parser`    | Parsing                                                        |
+| `typex_ast`       | Abstract syntax tree                                           |
+| `typex_span`      | Source locations and diagnostics                               |
+| `typex_resolve`   | Modules, imports, and name resolution                          |
+| `typex_typecheck` | Type checking                                                  |
+| `typex_hir`       | Lowered typed representation                                   |
+| `typex_ir`        | Shared compiler/interpreter IR                                 |
+| `typex_vm`        | Bytecode interpreter, execution loop, stack                    |
+| `typex_runtime`   | Memory model, built-in types, arrays, strings, GC/ref-counting |
+| `typex_std`       | Standard library implementation                                |
+| `typex_cli`       | CLI tools: `tx`, `txs`, `txc`                                  |
+| `typex_codegen`   | Native binary code generation                                  |
+
+Future crates:
+
+| Crate       | Purpose         |
+| ----------- | --------------- |
+| `typex_lsp` | Language server |
+
+## Targets
+
+v1 target support:
+
+```text
+host platform only
+```
+
+Cross-compilation is planned for future versions.
+
+Future target goals:
+
+| Target Triple                | Platform | Architecture        | OS/ABI      | Output    |
+| ---------------------------- | -------- | ------------------- | ----------- | --------- |
+| `x86_64-unknown-linux-gnu`   | Linux    | x86_64              | glibc       | `foo`     |
+| `x86_64-unknown-linux-musl`  | Linux    | x86_64              | musl static | `foo`     |
+| `aarch64-unknown-linux-gnu`  | Linux    | ARM64               | glibc       | `foo`     |
+| `aarch64-unknown-linux-musl` | Linux    | ARM64               | musl static | `foo`     |
+| `x86_64-pc-windows-msvc`     | Windows  | x86_64              | MSVC        | `foo.exe` |
+| `aarch64-pc-windows-msvc`    | Windows  | ARM64               | MSVC        | `foo.exe` |
+| `x86_64-apple-darwin`        | macOS    | x86_64 Intel        | Darwin      | `foo`     |
+| `aarch64-apple-darwin`       | macOS    | ARM64 Apple Silicon | Darwin      | `foo`     |
+
+## Roadmap
+
+### v1
+
+Safe native scripting/application language.
+
+Planned features:
+
+- primitive types
+- UTF-8 strings
+- arrays
+- records
+- type aliases
+- union types
+- enums
+- `Result<T, E>`
+- `match`
+- functions
+- arrow functions
+- named imports/exports
+- basic generics
+- destructuring
+- strict equality
+- basic control flow
+- basic loops
+- print/println/panic
+- REPL/script runner
+- host-platform compiler
+
+### v2
+
+Language and ecosystem expansion.
+
+Planned features:
+
+- full OOP
+- classes
+- `public` / `private`
+- inheritance
+- interfaces
+- `implements`
+- async/await
+- nullish coalescing
+- optional chaining
+- richer standard library
+- formatter
+- linter
+- test runner
+- package management
+- language server
+
+### v3
+
+Systems programming layer.
+
+Planned features:
+
+- FFI
+- explicit resource management
+- unsafe blocks
+- low-level memory/control primitives
+- deeper native interop
+
+### v4
+
+Self-hosting.
+
+The long-term goal is for TypeX to become capable enough to implement major parts of its own compiler/toolchain.
+
+## Non-Goals
+
+TypeX is not trying to be JavaScript-compatible.
+
+In particular, TypeX does not aim to support:
+
+- JavaScript runtime semantics
+- `undefined`
+- `Number`
+- `var`
+- default exports
+- loose equality
+- prototype inheritance
+- exception-based error handling as the primary model
+
+## License
+
+[MIT](./LICENSE)
+
+## AI Disclosure
+
+Pretty much everything here is generated by various AI tools.
+
+[AI_DISCLOSURE.md](./AI_DISCLOSURE.md)
+
+## Build, install & run examples
+
+```sh
+cargo install --path crates/typex_cli && tx run examples/stdlib.tx
+```

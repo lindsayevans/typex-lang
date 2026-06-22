@@ -1,0 +1,22 @@
+function divide(numerator: int, denominator: int): Result<int, string> {
+    if (denominator == 0) {
+        return Err("Cannot divide by zero!");
+    }
+    return Ok(numerator / denominator);
+}
+
+function main(): int {
+    const result: int = match divide(10, 2) {
+        Ok(n) => n,
+        Err(e) => 0,
+    };
+    println("10 / 2 = {}", result);
+
+    const result2: int = match divide(10, 0) {
+        Ok(n) => n,
+        Err(e) => -1,
+    };
+    println("10 / 0 = {}", result2);
+
+    return 0;
+}

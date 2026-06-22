@@ -1,0 +1,6 @@
+function main(): int {
+    println("a={}", 1);
+    println("a={} b={}", 1, 2);
+    println("a={} b={} c={}", 1, 2, 3);
+    return 0;
+}

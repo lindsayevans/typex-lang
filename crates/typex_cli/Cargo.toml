@@ -1,0 +1,22 @@
+[package]
+name = "typex_cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "tx"
+path = "src/main.rs"
+
+[dependencies]
+typex_span = { path = "../typex_span" }
+typex_lexer = { path = "../typex_lexer" }
+typex_parser = { path = "../typex_parser" }
+typex_resolve = { path = "../typex_resolve" }
+typex_typecheck = { path = "../typex_typecheck" }
+typex_hir = { path = "../typex_hir" }
+typex_ir = { path = "../typex_ir" }
+typex_vm = { path = "../typex_vm" }
+typex_codegen = { path = "../typex_codegen" }
+typex_std = { path = "../typex_std" }
+typex_runtime = { path = "../typex_runtime" }
+typex_ast    = { path = "../typex_ast" }

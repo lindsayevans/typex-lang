@@ -1,0 +1,23 @@
+function describe(n: int): int {
+    switch (n) {
+        case 1:
+            return 100;
+        case 2:
+            return 200;
+        default:
+            return 0;
+    }
+}
+
+function main(): int {
+    const a: int = describe(1);
+    println("describe(1) = {}", a);
+
+    const b: int = describe(2);
+    println("describe(2) = {}", b);
+
+    const c: int = describe(99);
+    println("describe(99) = {}", c);
+
+    return 0;
+}

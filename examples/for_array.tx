@@ -1,0 +1,9 @@
+function main(): int {
+    const nums: Array<int> = [10, 20, 30, 40, 50];
+
+    for (let {value} in nums) {
+        println("value: {}", value);
+    }
+
+    return 0;
+}

@@ -1,0 +1,8 @@
+import { fibonacci } from "./fibonacci.tx";
+
+function main() {
+    println("fibonacci(0) = {}", fibonacci(0));
+    println("fibonacci(1) = {}", fibonacci(1));
+    println("fibonacci(5) = {}", fibonacci(5));
+    println("fibonacci(10) = {}", fibonacci(10));
+}

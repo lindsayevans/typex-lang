@@ -1,0 +1,17 @@
+import { exec } from "tx:process";
+
+function ping(host: string): int {
+    const cmd: string = "ping -c 4 " + host;
+    const result: string = match exec(cmd) {
+        Ok(output) => output,
+        Err(e) => "error",
+    };
+    println(result);
+    return 0;
+}
+
+function main(argv: Array<string>): int {
+    const host: string = argv[1];
+    ping(host);
+    return 0;
+}

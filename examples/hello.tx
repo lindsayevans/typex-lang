@@ -1,0 +1,4 @@
+function main(): int {
+    println("Hello from native TypeX!");
+    return 0;
+}

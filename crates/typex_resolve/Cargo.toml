@@ -1,0 +1,9 @@
+[package]
+name = "typex_resolve"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+typex_span = { path = "../typex_span" }
+typex_ast = { path = "../typex_ast" }
+typex_parser = { path = "../typex_parser" }

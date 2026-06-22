@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/typex_span",
+    "crates/typex_ast",
+    "crates/typex_lexer",
+    "crates/typex_parser",
+    "crates/typex_resolve",
+    "crates/typex_typecheck",
+    "crates/typex_hir",
+    "crates/typex_ir",
+    "crates/typex_runtime",
+    "crates/typex_vm",
+    "crates/typex_std",
+    "crates/typex_codegen",
+    "crates/typex_cli",
+]
+
+[workspace.dependencies]
+# shared dependencies declared here, referenced in crates as:
+# some_dep = { workspace = true }
