@@ -1,0 +1,13 @@
+function main(): int {
+    const nums: Array<int> = [10, 20, 30, 40, 50];
+    println("length = {}", nums.length);
+
+    const str: string = "hello";
+    println("str length = {}", str.length);
+
+    if (nums.length == 5) {
+        println("correct length!");
+    }
+
+    return 0;
+}

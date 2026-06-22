@@ -862,6 +862,9 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Char(a), Value::Char(b)) => a == b,
         (Value::Str(a), Value::Str(b)) => a == b,
         (Value::Null, Value::Null) => true,
+        // mixed int/uint comparison
+        (Value::Int(a), Value::Uint(b)) => *a >= 0 && *a as u64 == *b,
+        (Value::Uint(a), Value::Int(b)) => *b >= 0 && *a == *b as u64,
         _ => false,
     }
 }

@@ -747,7 +747,10 @@ impl Typechecker {
                 lt
             }
             BinOp::Eq | BinOp::NotEq => {
-                if lt != rt {
+                // allow mixed int/uint comparison without warning
+                let mixed_numeric =
+                    (lt == Ty::Uint64 && rt == Ty::Int64) || (lt == Ty::Int64 && rt == Ty::Uint64);
+                if !mixed_numeric && lt != rt {
                     self.warning(
                         span,
                         format!("comparing '{}' and '{}' will always be unequal", lt, rt),
@@ -879,10 +882,16 @@ impl Typechecker {
         Ty::Unknown
     }
 
-    fn check_field(&mut self, e: &Expr, _field: &Ident, _span: Span) -> Ty {
-        self.check_expr(e);
-        // field access type resolution requires full type info — returns Unknown for now
-        Ty::Unknown
+    fn check_field(&mut self, e: &Expr, field: &Ident, _span: Span) -> Ty {
+        let ty = self.check_expr(e);
+        match (&ty, field.name.as_str()) {
+            (Ty::Array(_), "length") => Ty::Uint64,
+            (Ty::String, "length") => Ty::Uint64,
+            _ => {
+                // field access type resolution requires full type info
+                Ty::Unknown
+            }
+        }
     }
 
     fn check_index(&mut self, e: &Expr, i: &Expr, span: Span) -> Ty {
