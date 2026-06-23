@@ -1,0 +1,19 @@
+function add(a: int, b: int): int {
+    return a + b;
+}
+
+function main(): int {
+    // type mismatch: expected 'int64', got 'string'
+    const x1: int = "hello";
+
+    // const 'x2' must have an explicit type annotation
+    const x2 = 42;
+
+    // function 'add' expects 2 arguments, got 3
+    add(1, 2, 3);
+
+    // no errors
+    println("hello!");
+
+    return 0;
+}

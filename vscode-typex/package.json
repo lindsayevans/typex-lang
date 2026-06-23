@@ -1,8 +1,8 @@
 {
   "name": "vscode-typex",
   "displayName": "TypeX Language Support",
-  "description": "Syntax highlighting for the TypeX programming language (.tx files)",
-  "version": "0.1.0",
+  "description": "Syntax highlighting and language server for TypeX (.tx files)",
+  "version": "0.2.0",
   "publisher": "typex",
   "engines": {
     "vscode": "^1.75.0"
@@ -10,6 +10,10 @@
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onLanguage:typex"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
@@ -31,5 +35,13 @@
         "path": "./syntaxes/typex.tmLanguage.json"
       }
     ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
   }
 }

@@ -1,0 +1,18 @@
+[package]
+name = "typex_lsp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "typex_lsp"
+path = "src/main.rs"
+
+[dependencies]
+typex_ast       = { path = "../typex_ast" }
+typex_parser    = { path = "../typex_parser" }
+typex_resolve   = { path = "../typex_resolve" }
+typex_typecheck = { path = "../typex_typecheck" }
+typex_span      = { path = "../typex_span" }
+tower-lsp       = "0.20"
+tokio           = { version = "1", features = ["full"] }
+serde_json      = "1"
