@@ -1,0 +1,11 @@
+import { readLine } from "tx:io";
+
+function main(): int {
+    const name: string = match readLine("Enter your name: ") {
+        Ok(s)  => s,
+        Err(e) => panic("read error: {}", e),
+    };
+    println("Hello, {}!", name);
+
+    return 0;
+}
