@@ -38,6 +38,8 @@ impl StdRegistry {
         r.modules.insert("tx:fs".to_string(), fs::module());
         r.modules.insert("tx:io".to_string(), io::module());
         r.modules.insert("tx:math".to_string(), math::module());
+        r.modules.insert("tx:env".to_string(), env::module());
+
         r
     }
 
@@ -240,6 +242,58 @@ pub mod math {
                 Ok(Value::Float(n.clamp(*lo, *hi)))
             }
             _ => Err(RuntimeError::new("clamp requires three numeric arguments")),
+        }
+    }
+}
+
+// ------------------------------------------------------------------
+// tx:env
+// ------------------------------------------------------------------
+
+pub mod env {
+    use super::*;
+    use std::env;
+
+    pub fn module() -> StdModule {
+        let mut m = StdModule::new();
+        m.register("getenv", getenv);
+        m.register("setenv", setenv);
+        m.register("args", args);
+        m.register("cwd", cwd);
+        m
+    }
+
+    fn getenv(args: Vec<Value>) -> RuntimeResult<Value> {
+        let key = require_string(&args, 0, "getenv")?;
+        match env::var(&key) {
+            Ok(val) => Ok(Value::Ok(Box::new(Value::Str(val)))),
+            Err(_) => Ok(Value::Err(Box::new(Value::Str(format!(
+                "environment variable '{}' not set",
+                key
+            ))))),
+        }
+    }
+
+    fn setenv(args: Vec<Value>) -> RuntimeResult<Value> {
+        let key = require_string(&args, 0, "setenv")?;
+        let val = require_string(&args, 1, "setenv")?;
+        unsafe {
+            std::env::set_var(&key, &val);
+        }
+        Ok(Value::Void)
+    }
+
+    fn args(_args: Vec<Value>) -> RuntimeResult<Value> {
+        let args: Vec<Value> = env::args().map(|a| Value::Str(a)).collect();
+        Ok(Value::Array(args))
+    }
+
+    fn cwd(_args: Vec<Value>) -> RuntimeResult<Value> {
+        match env::current_dir() {
+            Ok(path) => Ok(Value::Ok(Box::new(Value::Str(
+                path.to_string_lossy().to_string(),
+            )))),
+            Err(e) => Ok(Value::Err(Box::new(Value::Str(e.to_string())))),
         }
     }
 }
@@ -524,5 +578,66 @@ mod tests {
     fn test_registry_has_process() {
         let r = StdRegistry::new();
         assert!(r.has_module("tx:process"));
+    }
+
+    #[test]
+    fn test_env_getenv_existing() {
+        // PATH should always be set
+        let result = call("tx:env", "getenv", vec![Value::Str("PATH".to_string())]).unwrap();
+        assert!(matches!(result, Value::Ok(_)));
+    }
+
+    #[test]
+    fn test_env_getenv_missing() {
+        let result = call(
+            "tx:env",
+            "getenv",
+            vec![Value::Str("TYPEX_TEST_NONEXISTENT_VAR".to_string())],
+        )
+        .unwrap();
+        assert!(matches!(result, Value::Err(_)));
+    }
+
+    #[test]
+    fn test_env_setenv_and_getenv() {
+        let result = call(
+            "tx:env",
+            "setenv",
+            vec![
+                Value::Str("TYPEX_TEST_VAR".to_string()),
+                Value::Str("hello_typex".to_string()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(result, Value::Void);
+
+        let result = call(
+            "tx:env",
+            "getenv",
+            vec![Value::Str("TYPEX_TEST_VAR".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            Value::Ok(Box::new(Value::Str("hello_typex".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_env_cwd() {
+        let result = call("tx:env", "cwd", vec![]).unwrap();
+        assert!(matches!(result, Value::Ok(_)));
+    }
+
+    #[test]
+    fn test_env_args() {
+        let result = call("tx:env", "args", vec![]).unwrap();
+        assert!(matches!(result, Value::Array(_)));
+    }
+
+    #[test]
+    fn test_registry_has_env() {
+        let r = StdRegistry::new();
+        assert!(r.has_module("tx:env"));
     }
 }
