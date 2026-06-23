@@ -12,7 +12,7 @@ fn main() {
     if args.len() < 2 {
         eprintln!("Usage: tx <command> [file]");
         eprintln!("Commands:");
-        eprintln!("  build <file>  Compile a .tx file to a native binary");
+        eprintln!("  build <file> [-o <output>]  Compile a .tx file to a native binary");
         eprintln!("  run <file>    Execute a .tx file");
         eprintln!("  repl          Start an interactive TypeX session");
         eprintln!("  ast <file>    Parse and print the AST of a .tx file");
@@ -23,10 +23,12 @@ fn main() {
     match args[1].as_str() {
         "build" => {
             if args.len() < 3 {
-                eprintln!("Usage: tx build <file>");
+                eprintln!("Usage: tx build <file> [-o <output>]");
                 process::exit(1);
             }
-            cmd_build(&args[2]);
+            let file = &args[2];
+            let output = parse_output_flag(&args[3..]);
+            cmd_build(file, output.as_deref());
         }
         "run" => {
             if args.len() < 3 {
@@ -59,7 +61,7 @@ fn main() {
     }
 }
 
-fn cmd_build(path: &str) {
+fn cmd_build(path: &str, output: Option<&str>) {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -85,8 +87,35 @@ fn cmd_build(path: &str) {
 
     // Typecheck
     let type_diags = typex_typecheck::typecheck(&module);
-    if print_diagnostics(&type_diags, &sm) {
+    let has_errors = type_diags
+        .iter()
+        .any(|d| d.level == typex_span::Level::Error);
+    for diag in &type_diags {
+        if diag.level == typex_span::Level::Error {
+            eprint!("{}", sm.render_diagnostic(diag));
+        }
+    }
+    if has_errors {
         process::exit(1);
+    }
+
+    // Determine output paths
+    let bin_path = if let Some(out) = output {
+        out.to_string()
+    } else {
+        let file_stem = std::path::Path::new(path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let out_dir = "out";
+        std::fs::create_dir_all(out_dir).ok();
+        format!("{}/{}", out_dir, file_stem)
+    };
+
+    let obj_path = format!("{}.o", bin_path);
+    if let Some(parent) = std::path::Path::new(&obj_path).parent() {
+        std::fs::create_dir_all(parent).ok();
     }
 
     // Codegen
@@ -99,17 +128,13 @@ fn cmd_build(path: &str) {
         }
     };
 
-    // write object file
-    let obj_path = path.replace(".tx", ".o");
+    // Write object file
     if let Err(e) = std::fs::write(&obj_path, &obj_bytes) {
         eprintln!("Failed to write object file: {}", e);
         process::exit(1);
     }
 
-    // determine output binary name
-    let bin_path = path.replace(".tx", "");
-
-    // compile runtime shim
+    // Compile runtime shim
     let shim_path = "/tmp/txruntime.c";
     let shim_obj = "/tmp/txruntime.o";
     std::fs::write(
@@ -127,7 +152,7 @@ fn cmd_build(path: &str) {
         process::exit(1);
     }
 
-    // link
+    // Link
     println!("Linking {}...", bin_path);
     let status = std::process::Command::new("cc")
         .arg(&obj_path)
@@ -451,4 +476,20 @@ fn print_diagnostics(diagnostics: &[typex_span::Diagnostic], sm: &typex_span::So
         }
     }
     has_errors
+}
+
+fn parse_output_flag(args: &[String]) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    return Some(args[i + 1].clone());
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }

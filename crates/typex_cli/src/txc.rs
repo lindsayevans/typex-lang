@@ -4,16 +4,33 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: txc <file>");
-        eprintln!("       Alias for: tx build <file>");
+        eprintln!("Usage: txc <file> [-o <output>]");
+        eprintln!("       Alias for: tx build <file> [-o <output>]");
         std::process::exit(1);
     }
 
-    let path = &args[1];
-    build_file(path);
+    let path = &args[1].clone();
+    let output = parse_output_flag(&args[2..]);
+    build_file(path, output.as_deref());
 }
 
-fn build_file(path: &str) {
+fn parse_output_flag(args: &[String]) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    return Some(args[i + 1].clone());
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn build_file(path: &str, output: Option<&str>) {
     use std::fs;
     use typex_parser::parse;
     use typex_span::SourceMap;
@@ -58,6 +75,25 @@ fn build_file(path: &str) {
         std::process::exit(1);
     }
 
+    // Determine output paths
+    let bin_path = if let Some(out) = output {
+        out.to_string()
+    } else {
+        let file_stem = std::path::Path::new(path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let out_dir = "out";
+        std::fs::create_dir_all(out_dir).ok();
+        format!("{}/{}", out_dir, file_stem)
+    };
+
+    let obj_path = format!("{}.o", bin_path);
+    if let Some(parent) = std::path::Path::new(&obj_path).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+
     println!("Compiling {}...", path);
     let obj_bytes = match typex_codegen::compile(&module, None) {
         Ok(bytes) => bytes,
@@ -67,13 +103,10 @@ fn build_file(path: &str) {
         }
     };
 
-    let obj_path = path.replace(".tx", ".o");
     if let Err(e) = std::fs::write(&obj_path, &obj_bytes) {
         eprintln!("Failed to write object file: {}", e);
         std::process::exit(1);
     }
-
-    let bin_path = path.replace(".tx", "");
 
     let shim_path = "/tmp/txruntime.c";
     let shim_obj = "/tmp/txruntime.o";
