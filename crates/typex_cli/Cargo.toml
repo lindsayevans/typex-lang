@@ -7,6 +7,14 @@ edition = "2024"
 name = "tx"
 path = "src/main.rs"
 
+[[bin]]
+name = "txs"
+path = "src/txs.rs"
+
+[[bin]]
+name = "txc"
+path = "src/txc.rs"
+
 [dependencies]
 typex_span = { path = "../typex_span" }
 typex_lexer = { path = "../typex_lexer" }
