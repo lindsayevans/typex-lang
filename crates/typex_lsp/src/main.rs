@@ -16,7 +16,7 @@ struct SymbolInfo {
     name: String,
     kind: SymbolKind,
     ty: String,
-    _span: typex_span::Span,
+    span: typex_span::Span,
 }
 
 #[derive(Debug, Clone)]
@@ -56,10 +56,7 @@ impl Backend {
                 name: name.to_string(),
                 kind: SymbolKind::Builtin,
                 ty: "builtin function".to_string(),
-                _span: typex_span::Span::point(
-                    typex_span::FileId(0),
-                    typex_span::Pos::new(0, 0, 0),
-                ),
+                span: typex_span::Span::point(typex_span::FileId(0), typex_span::Pos::new(0, 0, 0)),
             });
         }
 
@@ -84,7 +81,7 @@ impl Backend {
                     name: f.to_string(),
                     kind: SymbolKind::Builtin,
                     ty: format!("stdlib fn from {}", module),
-                    _span: typex_span::Span::point(
+                    span: typex_span::Span::point(
                         typex_span::FileId(0),
                         typex_span::Pos::new(0, 0, 0),
                     ),
@@ -161,8 +158,12 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec![".".to_string()]),
+                    resolve_provider: Some(false),
                     ..Default::default()
                 }),
+                definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -309,6 +310,242 @@ impl LanguageServer for Backend {
             items,
         })))
     }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .to_string();
+        let pos = params.text_document_position_params.position;
+
+        let documents = self.documents.lock().await;
+        let text = match documents.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(documents);
+
+        let word = match word_at_position(&text, pos.line as usize, pos.character as usize) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+
+        let symbols = self.symbols.lock().await;
+        let symbol_list = match symbols.get(&uri) {
+            Some(s) => s.clone(),
+            None => return Ok(None),
+        };
+        drop(symbols);
+
+        // prefer function/type declarations over variables
+        let decl_priority = |kind: &SymbolKind| match kind {
+            SymbolKind::Function => 0,
+            SymbolKind::Type => 1,
+            SymbolKind::Variable => 2,
+            SymbolKind::Param => 3,
+            SymbolKind::Builtin => 99,
+        };
+
+        let mut best: Option<&SymbolInfo> = None;
+        for sym in &symbol_list {
+            if sym.name == word && !matches!(sym.kind, SymbolKind::Builtin) {
+                match best {
+                    None => best = Some(sym),
+                    Some(b) => {
+                        if decl_priority(&sym.kind) < decl_priority(&b.kind) {
+                            best = Some(sym);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(sym) = best {
+            let start = Position {
+                line: sym.span.start.line.saturating_sub(1),
+                character: sym.span.start.col.saturating_sub(1),
+            };
+            let end = Position {
+                line: sym.span.end.line.saturating_sub(1),
+                character: sym.span.end.col.saturating_sub(1),
+            };
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri: Url::parse(&uri).unwrap(),
+                range: Range { start, end },
+            })));
+        }
+
+        Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri.to_string();
+        let pos = params.text_document_position.position;
+
+        let documents = self.documents.lock().await;
+        let text = match documents.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(documents);
+
+        let word = match word_at_position(&text, pos.line as usize, pos.character as usize) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+
+        // find all occurrences of the word in the document
+        let mut locations: Vec<Location> = Vec::new();
+        let parsed_uri = Url::parse(&uri).unwrap();
+
+        for (line_num, line) in text.lines().enumerate() {
+            let mut col = 0;
+            let chars: Vec<char> = line.chars().collect();
+            let mut in_string = false;
+
+            while col < chars.len() {
+                // skip line comments
+                if !in_string && col + 1 < chars.len() && chars[col] == '/' && chars[col + 1] == '/'
+                {
+                    break; // rest of line is a comment
+                }
+
+                if chars[col] == '"' {
+                    in_string = !in_string;
+                    col += 1;
+                    continue;
+                }
+
+                if in_string {
+                    col += 1;
+                    continue;
+                }
+
+                let remaining: String = chars[col..].iter().collect();
+                if remaining.starts_with(&word) {
+                    let before_ok =
+                        col == 0 || !(chars[col - 1].is_alphanumeric() || chars[col - 1] == '_');
+                    let after_pos = col + word.len();
+                    let after_ok = after_pos >= chars.len()
+                        || !(chars[after_pos].is_alphanumeric() || chars[after_pos] == '_');
+
+                    if before_ok && after_ok {
+                        let start = Position {
+                            line: line_num as u32,
+                            character: col as u32,
+                        };
+                        let end = Position {
+                            line: line_num as u32,
+                            character: (col + word.len()) as u32,
+                        };
+                        locations.push(Location {
+                            uri: parsed_uri.clone(),
+                            range: Range { start, end },
+                        });
+                    }
+                    col += word.len();
+                } else {
+                    col += 1;
+                }
+            }
+        }
+
+        if locations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(locations))
+        }
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri.to_string();
+        let pos = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        let documents = self.documents.lock().await;
+        let text = match documents.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(documents);
+
+        let word = match word_at_position(&text, pos.line as usize, pos.character as usize) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+
+        let mut edits: Vec<TextEdit> = Vec::new();
+
+        for (line_num, line) in text.lines().enumerate() {
+            let mut col = 0;
+            let chars: Vec<char> = line.chars().collect();
+            let mut in_string = false;
+
+            while col < chars.len() {
+                // skip line comments
+                if !in_string && col + 1 < chars.len() && chars[col] == '/' && chars[col + 1] == '/'
+                {
+                    break; // rest of line is a comment
+                }
+
+                // track string boundaries
+                if chars[col] == '"' {
+                    in_string = !in_string;
+                    col += 1;
+                    continue;
+                }
+
+                // skip matches inside strings
+                if in_string {
+                    col += 1;
+                    continue;
+                }
+
+                let remaining: String = chars[col..].iter().collect();
+                if remaining.starts_with(&word) {
+                    let before_ok =
+                        col == 0 || !(chars[col - 1].is_alphanumeric() || chars[col - 1] == '_');
+                    let after_pos = col + word.len();
+                    let after_ok = after_pos >= chars.len()
+                        || !(chars[after_pos].is_alphanumeric() || chars[after_pos] == '_');
+
+                    if before_ok && after_ok {
+                        let start = Position {
+                            line: line_num as u32,
+                            character: col as u32,
+                        };
+                        let end = Position {
+                            line: line_num as u32,
+                            character: (col + word.len()) as u32,
+                        };
+                        edits.push(TextEdit {
+                            range: Range { start, end },
+                            new_text: new_name.clone(),
+                        });
+                    }
+                    col += word.len();
+                } else {
+                    col += 1;
+                }
+            }
+        }
+
+        if edits.is_empty() {
+            return Ok(None);
+        }
+
+        let mut changes = HashMap::new();
+        changes.insert(Url::parse(&uri).unwrap(), edits);
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }))
+    }
 }
 
 // ------------------------------------------------------------------
@@ -386,7 +623,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     name: f.name.name.clone(),
                     kind: SymbolKind::Function,
                     ty: format!("function({}) -> {}", params.join(", "), ret),
-                    _span: f.span,
+                    span: f.span,
                 });
                 // add params
                 for param in &f.params {
@@ -394,7 +631,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                         name: param.name.name.clone(),
                         kind: SymbolKind::Param,
                         ty: type_expr_to_string(&param.ty),
-                        _span: param.span,
+                        span: param.span,
                     });
                 }
                 // collect from body
@@ -409,7 +646,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     name: c.name.name.clone(),
                     kind: SymbolKind::Variable,
                     ty,
-                    _span: c.span,
+                    span: c.span,
                 });
             }
             typex_ast::Item::Let(l) => {
@@ -421,7 +658,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     name: l.name.name.clone(),
                     kind: SymbolKind::Variable,
                     ty,
-                    _span: l.span,
+                    span: l.span,
                 });
             }
             typex_ast::Item::TypeAlias(t) => {
@@ -429,7 +666,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     name: t.name.name.clone(),
                     kind: SymbolKind::Type,
                     ty: type_expr_to_string(&t.ty),
-                    _span: t.span,
+                    span: t.span,
                 });
             }
             _ => {}
@@ -449,7 +686,7 @@ fn collect_block_symbols(block: &typex_ast::Block, symbols: &mut Vec<SymbolInfo>
                     name: l.name.name.clone(),
                     kind: SymbolKind::Variable,
                     ty,
-                    _span: l.span,
+                    span: l.span,
                 });
             }
             typex_ast::Stmt::Const(c) => {
@@ -461,7 +698,7 @@ fn collect_block_symbols(block: &typex_ast::Block, symbols: &mut Vec<SymbolInfo>
                     name: c.name.name.clone(),
                     kind: SymbolKind::Variable,
                     ty,
-                    _span: c.span,
+                    span: c.span,
                 });
             }
             typex_ast::Stmt::If(i) => {
