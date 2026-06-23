@@ -1,0 +1,22 @@
+function main(): int {
+    // basic object iteration
+    for (let {key, value} of {name: "TypeX", version: "1.0"}) {
+        println("key={} value={}", key, value);
+    }
+
+    println("---");
+
+    // key only
+    for (let {key} of {a: 1, b: 2, c: 3}) {
+        println("key={}", key);
+    }
+
+    println("---");
+
+    // value only
+    for (let {value} of {x: 10, y: 20, z: 30}) {
+        println("value={}", value);
+    }
+
+    return 0;
+}

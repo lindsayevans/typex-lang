@@ -938,6 +938,20 @@ impl Parser {
                     span,
                 }))
             }
+            TokenKind::LBrace => {
+                if self.is_record_literal() {
+                    Some(self.parse_record_literal()?)
+                } else {
+                    // block expression - not supported in this position
+                    let span = self.current_span();
+                    self.diagnostics.push(Diagnostic {
+                        level: Level::Error,
+                        span,
+                        message: "unexpected block in expression position".to_string(),
+                    });
+                    None
+                }
+            }
             other => {
                 let span = self.current_span();
                 self.diagnostics.push(Diagnostic {
@@ -1036,6 +1050,46 @@ impl Parser {
             body,
             span,
         })
+    }
+
+    fn is_record_literal(&self) -> bool {
+        // lookahead: { ident : ... } is a record literal
+        // { } is an empty record
+        let i = self.pos + 1; // skip {
+        if i >= self.tokens.len() {
+            return false;
+        }
+        // empty record: {}
+        if matches!(self.tokens[i].kind, TokenKind::RBrace) {
+            return true;
+        }
+        // { ident : value }
+        if matches!(self.tokens[i].kind, TokenKind::Ident(_)) {
+            let j = i + 1;
+            if j >= self.tokens.len() {
+                return false;
+            }
+            return matches!(self.tokens[j].kind, TokenKind::Colon);
+        }
+        false
+    }
+
+    fn parse_record_literal(&mut self) -> Option<Expr> {
+        let start = self.current_span();
+        self.expect(&TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        while self.peek() != &TokenKind::RBrace && self.peek() != &TokenKind::Eof {
+            let key = self.parse_ident()?;
+            self.expect(&TokenKind::Colon)?;
+            let value = self.parse_expr()?;
+            fields.push((key, value));
+            if !self.eat(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect(&TokenKind::RBrace)?;
+        let span = start.to(self.current_span());
+        Some(Expr::Record(fields, span))
     }
 }
 
