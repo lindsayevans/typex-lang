@@ -125,8 +125,27 @@ impl Vm {
         for item in &module.items {
             match item {
                 Item::Const(c) => {
-                    let val = self.eval_expr(&c.value)?;
-                    self.env.define(c.name.name.clone(), val);
+                    // check if it's an arrow function - register as callable
+                    if let Expr::Arrow(arrow) = &c.value {
+                        let fn_def = FunctionDef {
+                            name: c.name.clone(),
+                            params: arrow.params.clone(),
+                            return_type: arrow.return_type.clone(),
+                            body: match &arrow.body {
+                                ArrowBody::Block(b) => b.clone(),
+                                ArrowBody::Expr(e) => Block {
+                                    stmts: vec![Stmt::Return(Some(*e.clone()), c.span)],
+                                    span: c.span,
+                                },
+                            },
+                            span: c.span,
+                            exported: false,
+                        };
+                        self.functions.insert(c.name.name.clone(), fn_def);
+                    } else {
+                        let val = self.eval_expr(&c.value)?;
+                        self.env.define(c.name.name.clone(), val);
+                    }
                 }
                 Item::Let(l) => {
                     let val = if let Some(expr) = &l.value {
@@ -362,35 +381,61 @@ impl Vm {
                 ..
             } => {
                 let iter_val = self.eval_expr(iter)?;
-                let elements = match iter_val {
-                    Value::Array(els) => els,
+                match iter_val {
+                    Value::Array(elements) => {
+                        for (i, elem) in elements.into_iter().enumerate() {
+                            self.env.push();
+                            if let Some(idx) = index {
+                                self.env.define(idx.name.clone(), Value::Uint(i as u64));
+                            }
+                            if let Some(val) = value {
+                                self.env.define(val.name.clone(), elem);
+                            }
+                            match self.exec_block(body) {
+                                Ok(_) => {}
+                                Err(e) if is_return(&e) => {
+                                    self.env.pop();
+                                    return Err(e);
+                                }
+                                Err(e) => {
+                                    self.env.pop();
+                                    return Err(e);
+                                }
+                            }
+                            self.env.pop();
+                        }
+                    }
+                    Value::Str(s) => {
+                        // string iteration via ForStmt::Array when offset not needed
+                        for (i, ch) in s.chars().enumerate() {
+                            self.env.push();
+                            if let Some(idx) = index {
+                                self.env.define(idx.name.clone(), Value::Uint(i as u64));
+                            }
+                            if let Some(val) = value {
+                                self.env
+                                    .define(val.name.clone(), Value::Str(ch.to_string()));
+                            }
+                            match self.exec_block(body) {
+                                Ok(_) => {}
+                                Err(e) if is_return(&e) => {
+                                    self.env.pop();
+                                    return Err(e);
+                                }
+                                Err(e) => {
+                                    self.env.pop();
+                                    return Err(e);
+                                }
+                            }
+                            self.env.pop();
+                        }
+                    }
                     other => {
                         return Err(RuntimeError::new(format!(
-                            "expected Array, got {}",
+                            "expected Array or string, got {}",
                             other.type_name()
                         )));
                     }
-                };
-                for (i, elem) in elements.into_iter().enumerate() {
-                    self.env.push();
-                    if let Some(idx) = index {
-                        self.env.define(idx.name.clone(), Value::Uint(i as u64));
-                    }
-                    if let Some(val) = value {
-                        self.env.define(val.name.clone(), elem);
-                    }
-                    match self.exec_block(body) {
-                        Ok(_) => {}
-                        Err(e) if is_return(&e) => {
-                            self.env.pop();
-                            return Err(e);
-                        }
-                        Err(e) => {
-                            self.env.pop();
-                            return Err(e);
-                        }
-                    }
-                    self.env.pop();
                 }
                 Ok(Value::Void)
             }

@@ -296,6 +296,10 @@ impl Typechecker {
                     c.ty.as_ref()
                         .map(|t| self.resolve_type(t))
                         .unwrap_or_else(|| {
+                            // allow arrow functions without explicit type annotation
+                            if matches!(&c.value, Expr::Arrow(_)) {
+                                return Ty::Unknown;
+                            }
                             self.error(
                                 c.span,
                                 format!(
@@ -306,8 +310,10 @@ impl Typechecker {
                             Ty::Unknown
                         });
                 let val_ty = self.check_expr(&c.value);
-                self.check_assignable(&ty, &val_ty, c.span);
-                self.env.define_var(c.name.name.clone(), ty);
+                if ty != Ty::Unknown {
+                    self.check_assignable(&ty, &val_ty, c.span);
+                }
+                self.env.define_var(c.name.name.clone(), val_ty);
             }
             Item::Let(l) => {
                 let ty =
@@ -404,6 +410,9 @@ impl Typechecker {
                     c.ty.as_ref()
                         .map(|t| self.resolve_type(t))
                         .unwrap_or_else(|| {
+                            if matches!(&c.value, Expr::Arrow(_)) {
+                                return Ty::Unknown;
+                            }
                             self.error(
                                 c.span,
                                 format!(
@@ -414,8 +423,10 @@ impl Typechecker {
                             Ty::Unknown
                         });
                 let val_ty = self.check_expr(&c.value);
-                self.check_assignable(&ty, &val_ty, c.span);
-                self.env.define_var(c.name.name.clone(), ty);
+                if ty != Ty::Unknown {
+                    self.check_assignable(&ty, &val_ty, c.span);
+                }
+                self.env.define_var(c.name.name.clone(), val_ty);
             }
             Stmt::Return(expr, span) => {
                 let expected = self.env.current_return.clone().unwrap_or(Ty::Void);
@@ -494,9 +505,9 @@ impl Typechecker {
                 ..
             } => {
                 let iter_ty = self.check_expr(iter);
-                // expect Array<T>
                 let elem_ty = match &iter_ty {
                     Ty::Array(inner) => *inner.clone(),
+                    Ty::String => Ty::String, // string iteration
                     Ty::Unknown => Ty::Unknown,
                     other => {
                         self.error(

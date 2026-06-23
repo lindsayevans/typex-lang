@@ -898,10 +898,17 @@ impl Parser {
                 Some(Expr::Lit(Lit::Null(start)))
             }
             TokenKind::LParen => {
-                self.advance();
-                let expr = self.parse_expr()?;
-                self.expect(&TokenKind::RParen)?;
-                Some(expr)
+                // lookahead: is this an arrow function or a grouped expression?
+                // arrow function: ( ident : type ... ) : type =>
+                // grouped expr:   ( expr )
+                if self.is_arrow_fn() {
+                    Some(Expr::Arrow(self.parse_arrow_fn()?))
+                } else {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    self.expect(&TokenKind::RParen)?;
+                    Some(expr)
+                }
             }
             TokenKind::LBracket => {
                 self.advance();
@@ -965,6 +972,70 @@ impl Parser {
                 None
             }
         }
+    }
+
+    fn is_arrow_fn(&self) -> bool {
+        // peek ahead to see if this looks like (ident: type, ...) : type =>
+        // simple heuristic: look for pattern ( ident : or ( )
+        let i = self.pos + 1; // skip the (
+        if i >= self.tokens.len() {
+            return false;
+        }
+        // empty params: () =>
+        if matches!(self.tokens[i].kind, TokenKind::RParen) {
+            // check for ) : type => or ) =>
+            let j = i + 1;
+            if j >= self.tokens.len() {
+                return false;
+            }
+            if matches!(self.tokens[j].kind, TokenKind::Arrow) {
+                return true;
+            }
+            if matches!(self.tokens[j].kind, TokenKind::Colon) {
+                // ) : type =>
+                let k = j + 2; // skip type name
+                if k >= self.tokens.len() {
+                    return false;
+                }
+                return matches!(self.tokens[k].kind, TokenKind::Arrow);
+            }
+            return false;
+        }
+        // ( ident : ... ) => pattern
+        if matches!(self.tokens[i].kind, TokenKind::Ident(_)) {
+            let j = i + 1;
+            if j >= self.tokens.len() {
+                return false;
+            }
+            return matches!(self.tokens[j].kind, TokenKind::Colon);
+        }
+        false
+    }
+
+    fn parse_arrow_fn(&mut self) -> Option<ArrowFn> {
+        let start = self.current_span();
+        self.expect(&TokenKind::LParen)?;
+        let params = self.parse_params();
+        self.expect(&TokenKind::RParen)?;
+        let return_type = if self.eat(&TokenKind::Colon) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+        self.expect(&TokenKind::Arrow)?;
+        // block or expression body
+        let body = if self.peek() == &TokenKind::LBrace {
+            ArrowBody::Block(self.parse_block()?)
+        } else {
+            ArrowBody::Expr(Box::new(self.parse_expr()?))
+        };
+        let span = start.to(self.current_span());
+        Some(ArrowFn {
+            params,
+            return_type,
+            body,
+            span,
+        })
     }
 }
 
