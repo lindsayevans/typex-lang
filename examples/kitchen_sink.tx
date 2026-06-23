@@ -1,0 +1,322 @@
+// kitchen_sink.tx
+// A showcase of TypeX v1 language features
+
+import { readFile, writeFile, exists } from "tx:fs";
+import { sqrt, abs, pow, floor, ceil, round, min, max, clamp } from "tx:math";
+import { exec } from "tx:process";
+
+// -------------------------------------------------------
+// Enums
+// -------------------------------------------------------
+
+enum Direction {
+    North = 0,
+    South = 1,
+    East = 2,
+    West = 3,
+}
+
+enum Colour {
+    Red = "#f00",
+    Green = "#0f0",
+    Blue = "#00f",
+}
+
+// -------------------------------------------------------
+// Type aliases & union types
+// -------------------------------------------------------
+
+type Status = string;
+type MaybeInt = int | null;
+
+// -------------------------------------------------------
+// Result<T, E> + match
+// -------------------------------------------------------
+
+function divide(a: int, b: int): Result<int, string> {
+    if (b == 0) {
+        return Err("division by zero");
+    }
+    return Ok(a / b);
+}
+
+function demonstrate_result(): int {
+    println("--- Result<T, E> + match ---");
+
+    const good: int = match divide(10, 2) {
+        Ok(n)  => n,
+        Err(e) => 0,
+    };
+    println("10 / 2 = {}", good);
+
+    const bad: int = match divide(10, 0) {
+        Ok(n)  => n,
+        Err(e) => -1,
+    };
+    println("10 / 0 = {} (error handled)", bad);
+
+    return 0;
+}
+
+// -------------------------------------------------------
+// Recursion
+// -------------------------------------------------------
+
+function fibonacci(n: int): int {
+    if (n <= 0) { return 0; }
+    if (n == 1) { return 1; }
+    const a: int = fibonacci(n - 1);
+    const b: int = fibonacci(n - 2);
+    return a + b;
+}
+
+function demonstrate_recursion(): int {
+    println("--- Recursion ---");
+    let i: int = 0;
+    for (let {value} in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+        println("fibonacci({}) = {}", i, fibonacci(i));
+        i = i + 1;
+    }
+    return 0;
+}
+
+// -------------------------------------------------------
+// Control flow
+// -------------------------------------------------------
+
+function classify(n: int): int {
+    if (n < 0) {
+        println("{} is negative", n);
+    } else if (n == 0) {
+        println("{} is zero", n);
+    } else {
+        println("{} is positive", n);
+    }
+    return 0;
+}
+
+function day_name(n: int): int {
+    switch (n) {
+        case 1:
+            println("Monday");
+            return 0;
+        case 2:
+            println("Tuesday");
+            return 0;
+        case 3:
+            println("Wednesday");
+            return 0;
+        case 4:
+            println("Thursday");
+            return 0;
+        case 5:
+            println("Friday");
+            return 0;
+        default:
+            println("Weekend");
+            return 0;
+    }
+}
+
+function demonstrate_control_flow(): int {
+    println("--- Control Flow ---");
+    classify(-5);
+    classify(0);
+    classify(42);
+    day_name(1);
+    day_name(5);
+    day_name(7);
+
+    // ternary
+    const age: int = 20;
+    const status: string = match divide(age, 18) {
+        Ok(n) => "old enough",
+        Err(e) => "error",
+    };
+    println("age {}: {}", age, status);
+
+    return 0;
+}
+
+// -------------------------------------------------------
+// Arrays + loops
+// -------------------------------------------------------
+
+function sum(nums: Array<int>): int {
+    let total: int = 0;
+    for (let {value} in nums) {
+        total = total + value;
+    }
+    return total;
+}
+
+function demonstrate_arrays(): int {
+    println("--- Arrays + Loops ---");
+
+    const nums: Array<int> = [10, 20, 30, 40, 50];
+    println("array length = {}", nums.length);
+
+    let i: int = 0;
+    for (let {index, value} in nums) {
+        println("nums[{}] = {}", i, value);
+        i = i + 1;
+    }
+
+    const total: int = sum(nums);
+    println("sum = {}", total);
+
+    return 0;
+}
+
+// -------------------------------------------------------
+// Strings
+// -------------------------------------------------------
+
+function demonstrate_strings(): int {
+    println("--- Strings ---");
+
+    const greeting: string = "Hello";
+    const name: string = "TypeX";
+    const msg: string = greeting + ", " + name + "!";
+    println("{}", msg);
+    println("length = {}", msg.length);
+
+    // string iteration
+    let chars: int = 0;
+    for (let {index, value} in "hello") {
+        chars = chars + 1;
+    }
+    println("'hello' has {} chars", chars);
+
+    // string with byte offsets
+    for (let {index, offset, value} in "hi") {
+        println("char[{}] offset={} value={}", index, offset, value);
+    }
+
+    return 0;
+}
+
+// -------------------------------------------------------
+// Math stdlib
+// -------------------------------------------------------
+
+function demonstrate_math(): int {
+    println("--- Math ---");
+
+    const sq: float = match sqrt(144.0) {
+        Ok(n)  => n,
+        Err(e) => 0.0,
+    };
+    println("sqrt(144) = {}", sq);
+    println("abs(-42) = {}", abs(-42));
+    println("pow(2, 8) = {}", pow(2.0, 8.0));
+    println("floor(3.9) = {}", floor(3.9));
+    println("ceil(3.1) = {}", ceil(3.1));
+    println("round(3.5) = {}", round(3.5));
+    println("min(10, 20) = {}", min(10, 20));
+    println("max(10, 20) = {}", max(10, 20));
+    println("clamp(15, 0, 10) = {}", clamp(15, 0, 10));
+
+    return 0;
+}
+
+// -------------------------------------------------------
+// Filesystem stdlib
+// -------------------------------------------------------
+
+function demonstrate_fs(): int {
+    println("--- Filesystem ---");
+
+    const path: string = "/tmp/typex_kitchen_sink.txt";
+    const content: string = "Hello from TypeX!";
+
+    const wrote: int = match writeFile(path, content) {
+        Ok(n)  => 1,
+        Err(e) => 0,
+    };
+    println("writeFile: {}", wrote);
+
+    const file_exists: boolean = exists(path);
+    println("exists: {}", file_exists);
+
+    const read: string = match readFile(path) {
+        Ok(s)  => s,
+        Err(e) => "error",
+    };
+    println("readFile: {}", read);
+
+    return 0;
+}
+
+// -------------------------------------------------------
+// Arrow functions
+// -------------------------------------------------------
+
+const double = (n: int): int => n + n;
+const add = (a: int, b: int): int => a + b;
+const is_even = (n: int): boolean => n == (n / 2) * 2;
+
+function demonstrate_arrows(): int {
+    println("--- Arrow Functions ---");
+    println("double(21) = {}", double(21));
+    println("add(3, 4) = {}", add(3, 4));
+    println("is_even(4) = {}", is_even(4));
+    println("is_even(7) = {}", is_even(7));
+    return 0;
+}
+
+// -------------------------------------------------------
+// Variable reassignment
+// -------------------------------------------------------
+
+function demonstrate_reassignment(): int {
+    println("--- Variable Reassignment ---");
+    let x: int = 0;
+    println("x = {}", x);
+    x = x + 1;
+    println("x = {}", x);
+    x = x * 10;
+    println("x = {}", x);
+    x = 42;
+    println("x = {}", x);
+    return 0;
+}
+
+// -------------------------------------------------------
+// Main entrypoint
+// -------------------------------------------------------
+
+function main(argv: Array<string>): int {
+    println("=== TypeX Kitchen Sink ===");
+    println("");
+
+    demonstrate_result();
+    println("");
+
+    demonstrate_recursion();
+    println("");
+
+    demonstrate_control_flow();
+    println("");
+
+    demonstrate_arrays();
+    println("");
+
+    demonstrate_strings();
+    println("");
+
+    demonstrate_math();
+    println("");
+
+    demonstrate_fs();
+    println("");
+
+    demonstrate_arrows();
+    println("");
+
+    demonstrate_reassignment();
+    println("");
+
+    println("=== Done ===");
+    return 0;
+}
