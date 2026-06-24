@@ -32,23 +32,33 @@ struct Backend {
     client: Client,
     documents: Arc<Mutex<HashMap<String, String>>>,
     symbols: Arc<Mutex<HashMap<String, Vec<SymbolInfo>>>>, // uri -> symbols
+    builtin_symbols: Vec<SymbolInfo>,
 }
 
 impl Backend {
     fn new(client: Client) -> Self {
+        let builtin_symbols = build_builtin_symbols();
         Self {
             client,
             documents: Arc::new(Mutex::new(HashMap::new())),
             symbols: Arc::new(Mutex::new(HashMap::new())),
+            builtin_symbols,
         }
     }
 
     async fn analyze(&self, uri: &str, text: &str) {
+        // skip empty files
+        if text.trim().is_empty() {
+            return;
+        }
+
         let mut sm = SourceMap::new();
         let file = sm.add(uri.to_string(), text.to_string());
 
+        // start with pre-built builtins
+        let mut symbol_list = self.builtin_symbols.clone();
+
         let mut diagnostics: Vec<Diagnostic> = Vec::new();
-        let mut symbol_list: Vec<SymbolInfo> = Vec::new();
 
         // add builtins
         for name in &["print", "println", "panic"] {
@@ -215,7 +225,8 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         self.documents.lock().await.remove(&uri);
-        // clear diagnostics on close
+        self.symbols.lock().await.remove(&uri);
+        // clear diagnostics
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
@@ -876,6 +887,46 @@ fn make_import_edit(
         },
         new_text: new_import,
     }])
+}
+
+fn build_builtin_symbols() -> Vec<SymbolInfo> {
+    let mut symbols = Vec::new();
+    let dummy_span = typex_span::Span::point(typex_span::FileId(0), typex_span::Pos::new(0, 0, 0));
+
+    for name in &["print", "println", "panic"] {
+        symbols.push(SymbolInfo {
+            name: name.to_string(),
+            kind: SymbolKind::Builtin,
+            ty: "builtin function".to_string(),
+            span: dummy_span,
+        });
+    }
+
+    for (module, fns) in &[
+        (
+            "tx:fs",
+            vec!["readFile", "writeFile", "exists", "deleteFile"],
+        ),
+        ("tx:io", vec!["readLine", "readLines"]),
+        (
+            "tx:math",
+            vec![
+                "sqrt", "abs", "pow", "floor", "ceil", "round", "min", "max", "clamp",
+            ],
+        ),
+        ("tx:process", vec!["exec", "exit"]),
+        ("tx:env", vec!["getenv", "setenv", "args", "cwd"]),
+    ] {
+        for f in fns {
+            symbols.push(SymbolInfo {
+                name: f.to_string(),
+                kind: SymbolKind::Builtin,
+                ty: format!("stdlib fn from {}", module),
+                span: dummy_span,
+            });
+        }
+    }
+    symbols
 }
 
 // ------------------------------------------------------------------
