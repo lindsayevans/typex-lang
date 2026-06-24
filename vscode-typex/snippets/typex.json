@@ -1,0 +1,192 @@
+{
+  "function": {
+    "prefix": "function",
+    "body": [
+      "function ${1:name}(${2:params}): ${3:int} {",
+      "\t${4:// body}",
+      "\treturn ${5:0};",
+      "}"
+    ],
+    "description": "Named function declaration"
+  },
+  "arrow function": {
+    "prefix": "arrow",
+    "body": ["const ${1:name} = (${2:params}): ${3:int} => ${4:expr};"],
+    "description": "Arrow function"
+  },
+  "main": {
+    "prefix": "main",
+    "body": [
+      "function main(argv: Array<string>): int {",
+      "\t${1:// body}",
+      "\treturn 0;",
+      "}"
+    ],
+    "description": "Main entrypoint"
+  },
+  "if": {
+    "prefix": "if",
+    "body": ["if (${1:condition}) {", "\t${2:// body}", "}"],
+    "description": "If statement"
+  },
+  "if/else": {
+    "prefix": "ifelse",
+    "body": [
+      "if (${1:condition}) {",
+      "\t${2:// then}",
+      "} else {",
+      "\t${3:// else}",
+      "}"
+    ],
+    "description": "If/else statement"
+  },
+  "switch": {
+    "prefix": "switch",
+    "body": [
+      "switch (${1:value}) {",
+      "\tcase ${2:1}:",
+      "\t\t${3:// body}",
+      "\tdefault:",
+      "\t\t${4:// default}",
+      "}"
+    ],
+    "description": "Switch statement"
+  },
+  "match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:expr} {",
+      "\tOk(${2:value}) => ${3:${2:value}},",
+      "\tErr(${4:e}) => panic(\"error: {}\", ${4:e}),",
+      "}"
+    ],
+    "description": "Match on Result<T, E>"
+  },
+  "match assign": {
+    "prefix": "matchlet",
+    "body": [
+      "const ${1:result}: ${2:int} = match ${3:expr} {",
+      "\tOk(${4:value}) => ${4:value},",
+      "\tErr(${5:e}) => ${6:0},",
+      "};"
+    ],
+    "description": "Assign from match on Result<T, E>"
+  },
+  "for array": {
+    "prefix": "forin",
+    "body": [
+      "for (let {${1:index}, ${2:value}} in ${3:array}) {",
+      "\t${4:// body}",
+      "}"
+    ],
+    "description": "For loop over array"
+  },
+  "for object": {
+    "prefix": "forof",
+    "body": [
+      "for (let {${1:key}, ${2:value}} of ${3:object}) {",
+      "\t${4:// body}",
+      "}"
+    ],
+    "description": "For loop over object"
+  },
+  "for string": {
+    "prefix": "forstr",
+    "body": [
+      "for (let {${1:index}, ${2:offset}, ${3:value}} in ${4:str}) {",
+      "\t${5:// body}",
+      "}"
+    ],
+    "description": "For loop over string"
+  },
+  "let": {
+    "prefix": "let",
+    "body": ["let ${1:name}: ${2:int} = ${3:0};"],
+    "description": "Mutable variable"
+  },
+  "const": {
+    "prefix": "const",
+    "body": ["const ${1:name}: ${2:int} = ${3:0};"],
+    "description": "Immutable variable"
+  },
+  "Result function": {
+    "prefix": "fnresult",
+    "body": [
+      "function ${1:name}(${2:params}): Result<${3:int}, ${4:string}> {",
+      "\t${5:// body}",
+      "\treturn Ok(${6:value});",
+      "}"
+    ],
+    "description": "Function returning Result<T, E>"
+  },
+  "Ok": {
+    "prefix": "Ok",
+    "body": ["Ok(${1:value})"],
+    "description": "Ok result"
+  },
+  "Err": {
+    "prefix": "Err",
+    "body": ["Err(${1:message})"],
+    "description": "Err result"
+  },
+  "enum": {
+    "prefix": "enum",
+    "body": ["enum ${1:Name} {", "\t${2:Variant1},", "\t${3:Variant2},", "}"],
+    "description": "Enum declaration"
+  },
+  "type alias": {
+    "prefix": "type",
+    "body": ["type ${1:Name} = ${2:string};"],
+    "description": "Type alias"
+  },
+  "import": {
+    "prefix": "import",
+    "body": ["import { ${1:name} } from \"${2:./module.tx}\";"],
+    "description": "Import from file"
+  },
+  "import fs": {
+    "prefix": "importfs",
+    "body": ["import { ${1:readFile, writeFile} } from \"tx:fs\";"],
+    "description": "Import from tx:fs"
+  },
+  "import math": {
+    "prefix": "importmath",
+    "body": ["import { ${1:sqrt, abs} } from \"tx:math\";"],
+    "description": "Import from tx:math"
+  },
+  "import process": {
+    "prefix": "importprocess",
+    "body": ["import { ${1:exec} } from \"tx:process\";"],
+    "description": "Import from tx:process"
+  },
+  "import env": {
+    "prefix": "importenv",
+    "body": ["import { ${1:getenv} } from \"tx:env\";"],
+    "description": "Import from tx:env"
+  },
+  "import io": {
+    "prefix": "importio",
+    "body": ["import { ${1:readLine} } from \"tx:io\";"],
+    "description": "Import from tx:io"
+  },
+  "println": {
+    "prefix": "println",
+    "body": ["println(\"${1:message}\", ${2:args});"],
+    "description": "Print with newline"
+  },
+  "panic": {
+    "prefix": "panic",
+    "body": ["panic(\"${1:message}\");"],
+    "description": "Panic with message"
+  },
+  "Array type": {
+    "prefix": "Array",
+    "body": ["Array<${1:int}>"],
+    "description": "Array type"
+  },
+  "Result type": {
+    "prefix": "Result",
+    "body": ["Result<${1:int}, ${2:string}>"],
+    "description": "Result type"
+  }
+}
