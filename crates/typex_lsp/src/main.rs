@@ -277,12 +277,21 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri.to_string();
 
+        let documents = self.documents.lock().await;
+        let text = match documents.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(documents);
+
         let symbols = self.symbols.lock().await;
         let symbol_list = match symbols.get(&uri) {
             Some(s) => s.clone(),
             None => return Ok(None),
         };
         drop(symbols);
+
+        let existing_imports = get_existing_imports(&text);
 
         let items: Vec<CompletionItem> = symbol_list
             .iter()
@@ -294,12 +303,27 @@ impl LanguageServer for Backend {
                     SymbolKind::Type => CompletionItemKind::CLASS,
                     SymbolKind::Builtin => CompletionItemKind::FUNCTION,
                 };
+
+                // check if this is a stdlib function that needs importing
+                let additional_edits = if let SymbolKind::Builtin = sym.kind {
+                    if sym.ty.starts_with("stdlib fn from ") {
+                        let module = sym.ty.trim_start_matches("stdlib fn from ");
+                        make_import_edit(&text, &existing_imports, module, &sym.name)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 CompletionItem {
                     label: sym.name.clone(),
                     kind: Some(kind),
                     detail: Some(sym.ty.clone()),
                     insert_text: Some(sym.name.clone()),
                     filter_text: Some(sym.name.clone()),
+                    sort_text: Some(sym.name.clone()),
+                    additional_text_edits: additional_edits,
                     ..Default::default()
                 }
             })
@@ -763,6 +787,95 @@ fn type_expr_to_string(ty: &typex_ast::TypeExpr) -> String {
             format!("{} | null", type_expr_to_string(inner))
         }
     }
+}
+
+fn get_existing_imports(text: &str) -> HashMap<String, Vec<String>> {
+    // returns map of module -> [imported names]
+    // e.g. "tx:math" -> ["sqrt", "abs"]
+    let mut imports: HashMap<String, Vec<String>> = HashMap::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.starts_with("import {") {
+            continue;
+        }
+        // parse: import { a, b, c } from "module";
+        if let Some(from_pos) = line.find("} from \"") {
+            let names_part = &line[8..from_pos]; // after "import { "
+            let module_part = &line[from_pos + 8..]; // after "} from \""
+            let module = module_part.trim_end_matches("\";").trim_end_matches('"');
+            let names: Vec<String> = names_part
+                .split(',')
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty())
+                .collect();
+            imports.insert(module.to_string(), names);
+        }
+    }
+    imports
+}
+
+fn make_import_edit(
+    text: &str,
+    existing_imports: &HashMap<String, Vec<String>>,
+    module: &str,
+    name: &str,
+) -> Option<Vec<TextEdit>> {
+    // already imported - no edit needed
+    if let Some(names) = existing_imports.get(module) {
+        if names.contains(&name.to_string()) {
+            return None;
+        }
+        // module imported but name missing - update existing import line
+        let mut new_names = names.clone();
+        new_names.push(name.to_string());
+        new_names.sort();
+
+        // find the line to replace
+        for (i, line) in text.lines().enumerate() {
+            if line.trim().contains(&format!("from \"{}\"", module)) {
+                let new_line =
+                    format!("import {{ {} }} from \"{}\";", new_names.join(", "), module);
+                return Some(vec![TextEdit {
+                    range: Range {
+                        start: Position {
+                            line: i as u32,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: i as u32,
+                            character: line.len() as u32,
+                        },
+                    },
+                    new_text: new_line,
+                }]);
+            }
+        }
+    }
+
+    // find where to insert new import line
+    let mut insert_line: u32 = 0;
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().starts_with("import {") {
+            insert_line = i as u32 + 1;
+        }
+    }
+
+    let new_import = format!("import {{ {} }} from \"{}\";\n", name, module);
+
+    Some(vec![TextEdit {
+        range: Range {
+            start: Position {
+                line: insert_line,
+                character: 0,
+            },
+            end: Position {
+                line: insert_line,
+                character: 0,
+            },
+        },
+        new_text: new_import,
+    }])
 }
 
 // ------------------------------------------------------------------
