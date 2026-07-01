@@ -6,6 +6,8 @@ use typex_span::{Diagnostic, FileId, Level, Pos, Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
+    DocComment(String), // /** ... */
+
     // Literals
     Int(i64),
     Float(f64),
@@ -224,6 +226,12 @@ impl<'a> Lexer<'a> {
                     return self.next_token();
                 } else if self.peek() == Some('*') {
                     self.advance(); // consume *
+                    // check for doc comment /**
+                    if self.peek() == Some('*') {
+                        self.advance(); // consume second *
+                        let content = self.lex_doc_comment();
+                        return Token::new(TokenKind::DocComment(content), self.make_span(start));
+                    }
                     self.skip_block_comment();
                     return self.next_token();
                 } else {
@@ -295,6 +303,40 @@ impl<'a> Lexer<'a> {
         };
 
         Token::new(kind, self.make_span(start))
+    }
+
+    fn lex_doc_comment(&mut self) -> String {
+        let mut content = String::new();
+        loop {
+            match self.advance() {
+                None => break,
+                Some('*') => {
+                    if self.peek() == Some('/') {
+                        self.advance(); // consume /
+                        break;
+                    }
+                    content.push('*');
+                }
+                Some(c) => content.push(c),
+            }
+        }
+        // clean up leading * on each line
+        content
+            .lines()
+            .map(|line| {
+                let trimmed = line.trim();
+                if trimmed.starts_with("* ") {
+                    trimmed[2..].to_string()
+                } else if trimmed.starts_with('*') {
+                    trimmed[1..].to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
     }
 
     fn lex_string(&mut self, _start: Pos) -> TokenKind {

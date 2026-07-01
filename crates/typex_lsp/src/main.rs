@@ -17,6 +17,7 @@ struct SymbolInfo {
     kind: SymbolKind,
     ty: String,
     span: typex_span::Span,
+    doc: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,7 @@ impl Backend {
                 kind: SymbolKind::Builtin,
                 ty: "builtin function".to_string(),
                 span: typex_span::Span::point(typex_span::FileId(0), typex_span::Pos::new(0, 0, 0)),
+                doc: None,
             });
         }
 
@@ -95,6 +97,7 @@ impl Backend {
                         typex_span::FileId(0),
                         typex_span::Pos::new(0, 0, 0),
                     ),
+                    doc: None,
                 });
             }
         }
@@ -271,7 +274,13 @@ impl LanguageServer for Backend {
                     SymbolKind::Type => "type",
                     SymbolKind::Builtin => "builtin",
                 };
-                let contents = format!("**{}** `{}`\n\n_{}_", word, sym.ty, kind_str);
+
+                let mut contents = format!("**{}** `{}`\n\n_{}_", word, sym.ty, kind_str);
+
+                if let Some(doc) = &sym.doc {
+                    contents.push_str(&format!("\n\n---\n\n{}", doc));
+                }
+
                 return Ok(Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
@@ -659,6 +668,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     kind: SymbolKind::Function,
                     ty: format!("function({}) -> {}", params.join(", "), ret),
                     span: f.span,
+                    doc: f.doc_comment.clone(),
                 });
                 // add params
                 for param in &f.params {
@@ -667,6 +677,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                         kind: SymbolKind::Param,
                         ty: type_expr_to_string(&param.ty),
                         span: param.span,
+                        doc: None,
                     });
                 }
                 // collect from body
@@ -682,6 +693,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     kind: SymbolKind::Variable,
                     ty,
                     span: c.span,
+                    doc: None,
                 });
             }
             typex_ast::Item::Let(l) => {
@@ -694,6 +706,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     kind: SymbolKind::Variable,
                     ty,
                     span: l.span,
+                    doc: None,
                 });
             }
             typex_ast::Item::TypeAlias(t) => {
@@ -702,6 +715,7 @@ fn collect_symbols(module: &typex_ast::Module, symbols: &mut Vec<SymbolInfo>) {
                     kind: SymbolKind::Type,
                     ty: type_expr_to_string(&t.ty),
                     span: t.span,
+                    doc: None,
                 });
             }
             _ => {}
@@ -722,6 +736,7 @@ fn collect_block_symbols(block: &typex_ast::Block, symbols: &mut Vec<SymbolInfo>
                     kind: SymbolKind::Variable,
                     ty,
                     span: l.span,
+                    doc: None,
                 });
             }
             typex_ast::Stmt::Const(c) => {
@@ -734,6 +749,7 @@ fn collect_block_symbols(block: &typex_ast::Block, symbols: &mut Vec<SymbolInfo>
                     kind: SymbolKind::Variable,
                     ty,
                     span: c.span,
+                    doc: None,
                 });
             }
             typex_ast::Stmt::If(i) => {
@@ -899,6 +915,7 @@ fn build_builtin_symbols() -> Vec<SymbolInfo> {
             kind: SymbolKind::Builtin,
             ty: "builtin function".to_string(),
             span: dummy_span,
+            doc: None,
         });
     }
 
@@ -923,6 +940,7 @@ fn build_builtin_symbols() -> Vec<SymbolInfo> {
                 kind: SymbolKind::Builtin,
                 ty: format!("stdlib fn from {}", module),
                 span: dummy_span,
+                doc: None,
             });
         }
     }

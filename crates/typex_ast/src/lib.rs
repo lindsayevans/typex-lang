@@ -38,6 +38,7 @@ pub struct FunctionDef {
     pub body: Block,
     pub span: Span,
     pub exported: bool,
+    pub doc_comment: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -338,6 +339,7 @@ mod tests {
             },
             span: dummy_span(),
             exported: false,
+            doc_comment: None,
         };
         assert_eq!(f.name.name, "main");
         assert!(f.params.is_empty());

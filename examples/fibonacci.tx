@@ -1,6 +1,13 @@
-/* Multi
- * line
- * comment
+/** Calculate the nth Fibonacci number.
+ *
+ * Uses recursive algorithm.
+ *
+ * Example usage:
+ *
+ * ```tx
+ * const result: int = fibonacci(10);
+ * println("fib(10) = {}", result);
+ * ```
  */
 export function fibonacci(n: int): int {
     if (n <= 0) {

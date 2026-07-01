@@ -140,6 +140,7 @@ impl Vm {
                             },
                             span: c.span,
                             exported: false,
+                            doc_comment: None,
                         };
                         self.functions.insert(c.name.name.clone(), fn_def);
                     } else {

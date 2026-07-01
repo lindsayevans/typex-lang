@@ -76,7 +76,7 @@ impl Parser {
         let start = self.current_span();
         let mut items = Vec::new();
         while self.peek() != &TokenKind::Eof {
-            if let Some(item) = self.parse_item() {
+            if let Some(item) = self.parse_item_with_doc() {
                 items.push(item);
             }
         }
@@ -84,15 +84,44 @@ impl Parser {
         Module { items, span }
     }
 
+    fn parse_item_with_doc(&mut self) -> Option<Item> {
+        // collect any leading doc comment
+        let doc = if matches!(self.peek(), TokenKind::DocComment(_)) {
+            if let TokenKind::DocComment(s) = self.advance().kind.clone() {
+                Some(s)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut item = self.parse_item()?;
+
+        // attach doc comment to function if present
+        if let Some(doc_str) = doc {
+            if let Item::Function(ref mut f) = item {
+                f.doc_comment = Some(doc_str);
+            }
+        }
+
+        Some(item)
+    }
+
     fn parse_item(&mut self) -> Option<Item> {
         match self.peek() {
             TokenKind::Function => Some(Item::Function(self.parse_function(false)?)),
+            TokenKind::Export => self.parse_export_item(),
             TokenKind::Type => Some(Item::TypeAlias(self.parse_type_alias()?)),
             TokenKind::Enum => Some(Item::Enum(self.parse_enum()?)),
-            TokenKind::Export => self.parse_export_item(),
             TokenKind::Import => Some(Item::Import(self.parse_import()?)),
             TokenKind::Const => Some(Item::Const(self.parse_const()?)),
             TokenKind::Let => Some(Item::Let(self.parse_let()?)),
+            TokenKind::DocComment(_) => {
+                // already handled by parse_item_with_doc, skip if we see one here
+                self.advance();
+                None
+            }
             _ => {
                 let span = self.current_span();
                 self.diagnostics.push(Diagnostic {
@@ -131,6 +160,7 @@ impl Parser {
             body,
             span,
             exported,
+            doc_comment: None,
         })
     }
 
