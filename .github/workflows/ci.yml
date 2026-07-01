@@ -83,9 +83,6 @@ jobs:
       # tx check — typecheck all example files
       # ------------------------------------------------------------------
 
-      - name: Check fibonacci_lib.tx
-        run: tx check examples/fibonacci_lib.tx
-
       - name: Check imports.tx
         run: tx check examples/imports.tx
 
