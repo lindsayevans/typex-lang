@@ -1,0 +1,13 @@
+<svg width="380" height="108" viewBox="0 0 380 108" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background pill -->
+  <rect x="0" y="0" width="380" height="108" rx="16" fill="#051F18"/>
+  <!-- Icon -->
+  <rect x="14" y="14" width="80" height="80" rx="14" fill="#085041"/>
+  <text x="28" y="74" font-family="'JetBrains Mono', monospace" font-size="44" font-weight="700" fill="white">t</text>
+  <text x="58" y="74" font-family="'JetBrains Mono', monospace" font-size="44" font-weight="700" fill="#9FE1CB">x</text>
+  <!-- Wordmark -->
+  <text x="110" y="58" font-family="'JetBrains Mono', monospace" font-size="40" font-weight="300" fill="#9FE1CB">Type</text>
+  <text x="252" y="58" font-family="'JetBrains Mono', monospace" font-size="40" font-weight="700" fill="white">X</text>
+  <!-- Tagline -->
+  <text x="110" y="78" font-family="system-ui, sans-serif" font-size="11" fill="#4A9980" letter-spacing="1.5">strictly typed · fast · modern</text>
+</svg>

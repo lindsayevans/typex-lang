@@ -1,4 +1,4 @@
-# TypeX
+# ![TypeX](./docs/images/typex-dark.svg)
 
 > Vibe-coding my own interpreter/compiler, because YOLO.
 

@@ -1,0 +1,11 @@
+<svg width="380" height="80" viewBox="0 0 380 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon -->
+  <rect x="0" y="0" width="80" height="80" rx="16" fill="#085041"/>
+  <text x="14" y="60" font-family="'JetBrains Mono', monospace" font-size="44" font-weight="700" fill="white">t</text>
+  <text x="44" y="60" font-family="'JetBrains Mono', monospace" font-size="44" font-weight="700" fill="#9FE1CB">x</text>
+  <!-- Wordmark -->
+  <text x="100" y="48" font-family="'JetBrains Mono', monospace" font-size="40" font-weight="300" fill="#085041">Type</text>
+  <text x="242" y="48" font-family="'JetBrains Mono', monospace" font-size="40" font-weight="700" fill="#1D9E75">X</text>
+  <!-- Mono tagline -->
+  <text x="100" y="68" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="300" fill="#999" letter-spacing="1">// strictly typed language</text>
+</svg>

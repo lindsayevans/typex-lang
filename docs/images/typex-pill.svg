@@ -1,0 +1,11 @@
+<svg width="220" height="60" viewBox="0 0 220 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- Pill background -->
+  <rect x="0" y="0" width="220" height="60" rx="30" fill="#085041"/>
+  <!-- Icon circle -->
+  <rect x="8" y="8" width="44" height="44" rx="10" fill="#0A6B55"/>
+  <text x="14" y="38" font-family="'JetBrains Mono', monospace" font-size="24" font-weight="700" fill="white">t</text>
+  <text x="28" y="38" font-family="'JetBrains Mono', monospace" font-size="24" font-weight="700" fill="#9FE1CB">x</text>
+  <!-- Wordmark -->
+  <text x="62" y="38" font-family="'JetBrains Mono', monospace" font-size="28" font-weight="300" fill="#9FE1CB">Type</text>
+  <text x="164" y="38" font-family="'JetBrains Mono', monospace" font-size="28" font-weight="700" fill="white">X</text>
+</svg>
