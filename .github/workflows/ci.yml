@@ -1,0 +1,190 @@
+name: TypeX CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ------------------------------------------------------------------
+  # Rust unit tests
+  # ------------------------------------------------------------------
+  test:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+  # ------------------------------------------------------------------
+  # Build CLI and run TypeX scripts
+  # ------------------------------------------------------------------
+  typex-scripts:
+    name: TypeX Scripts
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build and install tx CLI
+        run: cargo install --path crates/typex_cli
+
+      - name: Verify tx is available
+        run: tx --help || true
+
+      # ------------------------------------------------------------------
+      # tx check — typecheck all example files
+      # ------------------------------------------------------------------
+
+      - name: Check fibonacci_lib.tx
+        run: tx check examples/fibonacci_lib.tx
+
+      - name: Check imports.tx
+        run: tx check examples/imports.tx
+
+      - name: Check kitchen_sink.tx
+        run: tx check examples/kitchen_sink.tx
+
+      - name: Check fibonacci.tx
+        run: tx check examples/fibonacci.tx
+
+      # ------------------------------------------------------------------
+      # tx run — execute and validate output
+      # ------------------------------------------------------------------
+
+      - name: Run fibonacci.tx
+        run: |
+          output=$(tx run examples/fibonacci.tx)
+          echo "$output"
+          echo "$output" | grep -q "fibonacci(0) = 0"
+          echo "$output" | grep -q "fibonacci(1) = 1"
+          echo "$output" | grep -q "fibonacci(5) = 5"
+          echo "$output" | grep -q "fibonacci(10) = 55"
+          echo "✅ fibonacci.tx passed"
+
+      - name: Run imports.tx
+        run: |
+          output=$(tx run examples/imports.tx)
+          echo "$output"
+          echo "$output" | grep -q "fibonacci(0) = 0"
+          echo "$output" | grep -q "fibonacci(10) = 55"
+          echo "✅ imports.tx passed"
+
+      - name: Run kitchen_sink.tx
+        run: |
+          output=$(tx run examples/kitchen_sink.tx)
+          echo "$output"
+          echo "$output" | grep -q "10 / 2 = 5"
+          echo "$output" | grep -q "fibonacci(10) = 55"
+          echo "$output" | grep -q "Hello, TypeX!"
+          echo "$output" | grep -q "sqrt(144) = 12"
+          echo "$output" | grep -q "double(21) = 42"
+          echo "✅ kitchen_sink.tx passed"
+
+  # ------------------------------------------------------------------
+  # Build native binaries (macOS ARM64)
+  # ------------------------------------------------------------------
+  build-native:
+    name: Native Compiler (macOS ARM64)
+    runs-on: macos-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build and install tx CLI
+        run: cargo install --path crates/typex_cli
+
+      - name: Build fibonacci native binary
+        run: |
+          tx build examples/fibonacci.tx
+          ls -la out/fibonacci
+
+      - name: Run native fibonacci binary
+        run: |
+          output=$(./out/fibonacci)
+          echo "$output"
+          echo "$output" | grep -q "fibonacci(0) = 0"
+          echo "$output" | grep -q "fibonacci(10) = 55"
+          echo "✅ native fibonacci passed"
+
+      - name: Build hello native binary
+        run: |
+          tx build examples/hello.tx
+          ls -la out/hello
+
+      - name: Run native hello binary
+        run: |
+          output=$(./out/hello)
+          echo "$output"
+          echo "$output" | grep -q "Hello from native TypeX!"
+          echo "✅ native hello passed"
+
+      - name: Upload native binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: typex-binaries-macos-arm64
+          path: out/
+          retention-days: 7
