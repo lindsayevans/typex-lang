@@ -20,6 +20,11 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.block.typex",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
           "name": "comment.line.double-slash.typex",
           "match": "//.*$"
         }

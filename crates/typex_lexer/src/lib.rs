@@ -133,12 +133,6 @@ impl<'a> Lexer<'a> {
         self.src[self.pos..].chars().next()
     }
 
-    fn peek_next(&self) -> Option<char> {
-        let mut chars = self.src[self.pos..].chars();
-        chars.next();
-        chars.next()
-    }
-
     fn advance(&mut self) -> Option<char> {
         let ch = self.peek()?;
         self.pos += ch.len_utf8();
@@ -170,10 +164,24 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn skip_block_comment(&mut self) {
+        loop {
+            match self.advance() {
+                None => break, // unterminated block comment - just stop
+                Some('*') => {
+                    if self.peek() == Some('/') {
+                        self.advance(); // consume closing /
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn make_span(&self, start: Pos) -> Span {
         Span::new(self.file, start, self.current_pos())
     }
-
     fn next_token(&mut self) -> Token {
         self.skip_whitespace();
 
@@ -184,13 +192,7 @@ impl<'a> Lexer<'a> {
             Some(ch) => ch,
         };
 
-        // Line comments
-        if ch == '/' && self.peek_next() == Some('/') {
-            self.skip_line_comment();
-            return self.next_token();
-        }
-
-        self.advance();
+        self.advance(); // consume ch — exactly once
 
         let kind = match ch {
             '(' => TokenKind::LParen,
@@ -216,7 +218,18 @@ impl<'a> Lexer<'a> {
             '-' => TokenKind::Minus,
             '*' => TokenKind::Star,
             '%' => TokenKind::Percent,
-            '/' => TokenKind::Slash,
+            '/' => {
+                if self.peek() == Some('/') {
+                    self.skip_line_comment();
+                    return self.next_token();
+                } else if self.peek() == Some('*') {
+                    self.advance(); // consume *
+                    self.skip_block_comment();
+                    return self.next_token();
+                } else {
+                    TokenKind::Slash
+                }
+            }
             '<' => {
                 if self.peek() == Some('=') {
                     self.advance();
@@ -518,5 +531,60 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn test_block_comment() {
+        let tokens = lex("/* hello */ let x = 1;");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Let,
+                TokenKind::Ident("x".to_string()),
+                TokenKind::Assign,
+                TokenKind::Int(1),
+                TokenKind::Semicolon,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_block_comment_multiline() {
+        let tokens = lex("/* multi\n * line\n * comment\n */\nlet x = 1;");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Let,
+                TokenKind::Ident("x".to_string()),
+                TokenKind::Assign,
+                TokenKind::Int(1),
+                TokenKind::Semicolon,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_block_comment_inline() {
+        let tokens = lex("let /* comment */ x = 1;");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Let,
+                TokenKind::Ident("x".to_string()),
+                TokenKind::Assign,
+                TokenKind::Int(1),
+                TokenKind::Semicolon,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_block_comment_unterminated() {
+        // should not hang or panic, just return eof
+        let tokens = lex("let x = /* unterminated");
+        assert!(tokens.last() == Some(&TokenKind::Eof));
     }
 }
