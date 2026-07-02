@@ -719,6 +719,13 @@ impl Vm {
                     Ok(Value::Bool(false))
                 }
             }
+            (Value::Array(els), "push") => {
+                let mut new_arr = els.clone();
+                if let Some(val) = args.into_iter().next() {
+                    new_arr.push(val);
+                }
+                Ok(Value::Array(new_arr))
+            }
             (Value::Str(s), "length") => Ok(Value::Uint(s.chars().count() as u64)),
             _ => Err(RuntimeError::new(format!(
                 "no method '{}' on {}",
