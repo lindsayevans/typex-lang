@@ -1,0 +1,282 @@
+name: TypeX Release
+
+on:
+  push:
+    branches:
+      - release/*
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ------------------------------------------------------------------
+  # Extract version from branch name (release/v1.2.3 -> v1.2.3)
+  # ------------------------------------------------------------------
+  version:
+    name: Extract Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      tag: ${{ steps.extract.outputs.tag }}
+    steps:
+      - name: Extract version from branch
+        id: extract
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          VERSION="${BRANCH#release/}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building release: $VERSION"
+
+  # ------------------------------------------------------------------
+  # Run tests first
+  # ------------------------------------------------------------------
+  test:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --workspace
+
+  # ------------------------------------------------------------------
+  # Build binaries in parallel across platforms
+  # ------------------------------------------------------------------
+  build:
+    name: Build — ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    needs: [version, test]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Apple Silicon
+          - name: macOS ARM64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            tx_binary: tx
+            txs_binary: txs
+            txc_binary: txc
+            lsp_binary: typex_lsp
+            archive_ext: tar.gz
+            archive_name: typex-macos-arm64
+
+          # macOS Intel
+          - name: macOS x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            tx_binary: tx
+            txs_binary: txs
+            txc_binary: txc
+            lsp_binary: typex_lsp
+            archive_ext: tar.gz
+            archive_name: typex-macos-x86_64
+
+          # Linux x86_64
+          - name: Linux x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            tx_binary: tx
+            txs_binary: txs
+            txc_binary: txc
+            lsp_binary: typex_lsp
+            archive_ext: tar.gz
+            archive_name: typex-linux-x86_64
+
+          # Linux ARM64
+          - name: Linux ARM64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            tx_binary: tx
+            txs_binary: txs
+            txc_binary: txc
+            lsp_binary: typex_lsp
+            archive_ext: tar.gz
+            archive_name: typex-linux-arm64
+
+          # Windows x86_64
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            tx_binary: tx.exe
+            txs_binary: txs.exe
+            txc_binary: txc.exe
+            lsp_binary: typex_lsp.exe
+            archive_ext: zip
+            archive_name: typex-windows-x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools (Linux)
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          # cross-compilation tools for ARM64
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
+
+      - name: Configure cross-compilation (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << EOF
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build tx CLI
+        run: |
+          cargo build --release --target ${{ matrix.target }} --package typex_cli
+
+      - name: Build typex_lsp
+        run: |
+          cargo build --release --target ${{ matrix.target }} --package typex_lsp
+
+      - name: Prepare release directory
+        shell: bash
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/${{ matrix.tx_binary }}  release/
+          cp target/${{ matrix.target }}/release/${{ matrix.txs_binary }} release/
+          cp target/${{ matrix.target }}/release/${{ matrix.txc_binary }} release/
+          cp target/${{ matrix.target }}/release/${{ matrix.lsp_binary }} release/
+          ls -la release/
+
+      - name: Create archive (tar.gz — macOS/Linux)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          tar -czf ${{ matrix.archive_name }}.tar.gz -C release .
+          ls -la ${{ matrix.archive_name }}.tar.gz
+
+      - name: Create archive (zip — Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path release\* -DestinationPath ${{ matrix.archive_name }}.zip
+          ls ${{ matrix.archive_name }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: ${{ matrix.archive_name }}.${{ matrix.archive_ext }}
+          retention-days: 1
+
+  # ------------------------------------------------------------------
+  # Publish GitHub Release
+  # ------------------------------------------------------------------
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: [version, build]
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) | sort | while read f; do
+            sha256sum "$f" >> ../checksums.txt
+          done
+          cat ../checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: TypeX ${{ needs.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(needs.version.outputs.version, 'alpha') || contains(needs.version.outputs.version, 'beta') || contains(needs.version.outputs.version, 'rc') }}
+          body: |
+            ## TypeX ${{ needs.version.outputs.version }}
+
+            ### Installation
+
+            Download the appropriate archive for your platform, extract it, and add the binaries to your PATH.
+
+            | Platform | Archive |
+            |---|---|
+            | macOS Apple Silicon | `typex-macos-arm64.tar.gz` |
+            | macOS Intel | `typex-macos-x86_64.tar.gz` |
+            | Linux x86_64 (static) | `typex-linux-x86_64.tar.gz` |
+            | Linux ARM64 (static) | `typex-linux-arm64.tar.gz` |
+            | Windows x86_64 | `typex-windows-x86_64.zip` |
+
+            ### Binaries included
+
+            | Binary | Description |
+            |---|---|
+            | `tx` | Unified toolchain (`tx run`, `tx build`, `tx check`, `tx ast`, `tx repl`) |
+            | `txs` | Script runner alias (`txs foo.tx`) |
+            | `txc` | Compiler alias (`txc foo.tx`) |
+            | `typex_lsp` | Language server for VSCode and other editors |
+
+            ### Quick start
+
+            ```sh
+            # Run a script
+            txs hello.tx
+
+            # Compile to native binary
+            txc hello.tx
+
+            # Start the REPL
+            tx repl
+            ```
+
+            ### Checksums
+
+            See `checksums.txt` for SHA-256 checksums of all release artifacts.
+
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            checksums.txt
