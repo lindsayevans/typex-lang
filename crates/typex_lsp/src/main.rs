@@ -154,6 +154,148 @@ impl Backend {
             )
             .await;
     }
+
+    async fn complete_import(
+        &self,
+        text: &str,
+        uri: &str,
+        pos: Position,
+    ) -> Option<Vec<CompletionItem>> {
+        let lines: Vec<&str> = text.lines().collect();
+        let line = lines.get(pos.line as usize)?;
+        let col = pos.character as usize;
+
+        // check if we're on an import line
+        let trimmed = line.trim();
+        if !trimmed.starts_with("import") {
+            return None;
+        }
+
+        // check if cursor is inside the from "..." string
+        let before_cursor = &line[..col.min(line.len())];
+
+        // are we inside the from string?
+        if !before_cursor.contains("from \"") {
+            return None;
+        }
+
+        // extract what's been typed so far in the string
+        let from_pos = before_cursor.rfind("from \"")?;
+        let typed = &before_cursor[from_pos + 6..]; // after 'from "'
+
+        if typed.starts_with("tx:") || typed.is_empty() {
+            // stdlib completions
+            return Some(self.stdlib_import_completions());
+        }
+
+        if typed.starts_with('.') || typed.starts_with('/') {
+            // file completions
+            return Some(self.file_import_completions(uri, typed).await);
+        }
+
+        // show both
+        let mut items = self.stdlib_import_completions();
+        items.extend(self.file_import_completions(uri, typed).await);
+        Some(items)
+    }
+
+    fn stdlib_import_completions(&self) -> Vec<CompletionItem> {
+        let modules = vec![
+            ("tx:fs", "readFile, writeFile, exists, deleteFile"),
+            ("tx:io", "readLine, readLines"),
+            (
+                "tx:math",
+                "sqrt, abs, pow, floor, ceil, round, min, max, clamp",
+            ),
+            ("tx:process", "exec, exit"),
+            ("tx:env", "getenv, setenv, args, cwd"),
+        ];
+
+        modules
+            .iter()
+            .map(|(module, fns)| {
+                CompletionItem {
+                    label: module.to_string(),
+                    kind: Some(CompletionItemKind::MODULE),
+                    detail: Some(fns.to_string()),
+                    insert_text: Some(module.to_string()),
+                    filter_text: Some(module.to_string()),
+                    // also insert the closing quote
+                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    async fn file_import_completions(&self, uri: &str, typed: &str) -> Vec<CompletionItem> {
+        // resolve current file's directory
+        let file_path = uri.trim_start_matches("file://");
+        let current_dir = std::path::Path::new(file_path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+
+        // resolve the typed path prefix
+        let search_dir = if typed.is_empty() || typed == "." || typed == "./" {
+            current_dir.to_path_buf()
+        } else {
+            let prefix = typed.trim_end_matches(|c| c != '/' && c != '\\');
+            current_dir.join(prefix)
+        };
+
+        let mut items = Vec::new();
+
+        let entries = match std::fs::read_dir(&search_dir) {
+            Ok(e) => e,
+            Err(_) => return items,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = match entry.file_name().into_string() {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            // skip hidden files
+            if name.starts_with('.') {
+                continue;
+            }
+
+            if path.is_dir() {
+                // directory — add with trailing /
+                let label = format!("./{}/", name);
+                items.push(CompletionItem {
+                    label: label.clone(),
+                    kind: Some(CompletionItemKind::FOLDER),
+                    detail: Some("directory".to_string()),
+                    insert_text: Some(label.clone()),
+                    filter_text: Some(label),
+                    ..Default::default()
+                });
+            } else if name.ends_with(".tx") {
+                // .tx file
+                let label = format!("./{}", name);
+                items.push(CompletionItem {
+                    label: label.clone(),
+                    kind: Some(CompletionItemKind::FILE),
+                    detail: Some("TypeX module".to_string()),
+                    insert_text: Some(label.clone()),
+                    filter_text: Some(label),
+                    ..Default::default()
+                });
+            }
+        }
+
+        // sort: directories first, then files
+        items.sort_by(|a, b| {
+            let a_is_dir = matches!(a.kind, Some(CompletionItemKind::FOLDER));
+            let b_is_dir = matches!(b.kind, Some(CompletionItemKind::FOLDER));
+            b_is_dir.cmp(&a_is_dir).then(a.label.cmp(&b.label))
+        });
+
+        items
+    }
 }
 
 // ------------------------------------------------------------------
@@ -296,6 +438,7 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri.to_string();
+        let pos = params.text_document_position.position;
 
         let documents = self.documents.lock().await;
         let text = match documents.get(&uri) {
@@ -303,6 +446,14 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
         drop(documents);
+
+        // check for import context first
+        if let Some(items) = self.complete_import(&text, &uri, pos).await {
+            return Ok(Some(CompletionResponse::List(CompletionList {
+                is_incomplete: false,
+                items,
+            })));
+        }
 
         let symbols = self.symbols.lock().await;
         let symbol_list = match symbols.get(&uri) {
