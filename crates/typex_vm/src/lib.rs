@@ -907,6 +907,9 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Char(a), Value::Char(b)) => a == b,
         (Value::Str(a), Value::Str(b)) => a == b,
+        // allow comparing single-char string with char
+        (Value::Str(s), Value::Char(c)) => s.chars().count() == 1 && s.chars().next() == Some(*c),
+        (Value::Char(c), Value::Str(s)) => s.chars().count() == 1 && s.chars().next() == Some(*c),
         (Value::Null, Value::Null) => true,
         // mixed int/uint comparison
         (Value::Int(a), Value::Uint(b)) => *a >= 0 && *a as u64 == *b,
