@@ -245,7 +245,6 @@ jobs:
             | Platform | Archive |
             |---|---|
             | macOS Apple Silicon | `typex-macos-arm64.tar.gz` |
-            | macOS Intel | `typex-macos-x86_64.tar.gz` |
             | Linux x86_64 (static) | `typex-linux-x86_64.tar.gz` |
             | Linux ARM64 (static) | `typex-linux-arm64.tar.gz` |
             | Windows x86_64 | `typex-windows-x86_64.zip` |
