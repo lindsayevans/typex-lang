@@ -260,6 +260,14 @@ jobs:
 
             ### Quick start
 
+            hello.tx:
+            ```
+            function main(): int {
+                println("Hello from TypeX!");
+                return 0;
+            }
+            ```
+
             ```sh
             # Run a script
             txs hello.tx
