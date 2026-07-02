@@ -82,15 +82,15 @@ jobs:
             archive_name: typex-macos-arm64
 
           # macOS Intel
-          - name: macOS x86_64
-            os: macos-13
-            target: x86_64-apple-darwin
-            tx_binary: tx
-            txs_binary: txs
-            txc_binary: txc
-            lsp_binary: typex_lsp
-            archive_ext: tar.gz
-            archive_name: typex-macos-x86_64
+          # - name: macOS x86_64
+          #   os: macos-13
+          #   target: x86_64-apple-darwin
+          #   tx_binary: tx
+          #   txs_binary: txs
+          #   txc_binary: txc
+          #   lsp_binary: typex_lsp
+          #   archive_ext: tar.gz
+          #   archive_name: typex-macos-x86_64
 
           # Linux x86_64
           - name: Linux x86_64
