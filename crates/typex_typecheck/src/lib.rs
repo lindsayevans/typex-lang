@@ -1021,6 +1021,12 @@ impl Typechecker {
         if expected.is_unknown() || actual.is_unknown() {
             return;
         }
+        // allow empty array (Array<Unknown>) to be assigned to any Array<T>
+        if let (Ty::Array(_), Ty::Array(inner)) = (expected, actual) {
+            if inner.is_unknown() {
+                return;
+            }
+        }
         // numeric widening: allow assigning int8 to int64 etc
         if expected.is_numeric() && actual.is_numeric() {
             return;
