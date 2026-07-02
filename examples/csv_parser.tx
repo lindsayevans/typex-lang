@@ -1,0 +1,56 @@
+import { readFile, exists } from "tx:fs";
+
+function parseCsv(csv: string): Array<Array<string>> {
+    let rows: Array<Array<string>> = [];
+    let row: Array<string> = [];
+    let field: string = "";
+    let rowStarted: boolean = false;
+
+    for (let {value} in csv) {
+        if (value == ",") {
+            row = row.push(field);
+            field = "";
+            rowStarted = true;
+        } else if (value == "\n") {
+            row = row.push(field);
+            rows = rows.push(row);
+            row = [];
+            field = "";
+            rowStarted = false;
+        } else {
+            field = field + value;
+            rowStarted = true;
+        }
+    }
+
+    if (field != "" || rowStarted) {
+        row = row.push(field);
+        rows = rows.push(row);
+    }
+
+    return rows;
+}
+
+function main(argv: Array<string>): int {
+
+    let path: string = argv[1];
+
+    const found: boolean = exists(path);
+    if (!found) {
+        panic("File {} doesn't exist");
+    }
+
+    const csv: string = match readFile(path) {
+        Ok(s)  => s,
+        Err(e) => "error",
+    };
+
+    const rows: Array<Array<string>> = parseCsv(csv);
+    println("| {} | {} | {} |", rows[0][0], rows[0][1], rows[0][2]);
+    println("| --- | --- | --- |");
+    for (let {value} in rows) {
+        println("| {} | {} | {} |", value[0], value[1], value[2]);
+    }
+    
+    return 0;
+}
