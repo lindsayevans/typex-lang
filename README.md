@@ -20,6 +20,13 @@ You'll need [Rust](https://rust-lang.org/tools/install/) installed.
 cargo install --path crates/typex_cli && tx run examples/kitchen_sink.tx
 ```
 
+## Build & install LSP, VS Code extension
+
+```sh
+cargo install --path crates/typex_lsp
+cd vscode-typex && npm install && npx tsc --project tsconfig.json && cd .. && cp -r vscode-typex ~/.vscode/extensions/vscode-typex && cd ~/.vscode/extensions/vscode-typex && npm install && cd -
+```
+
 ## Overview
 
 **TypeX** is an experimental, strictly typed programming language loosely inspired by TypeScript, with some nice bits borrowed from Rust.
