@@ -40,7 +40,7 @@ function main(argv: Array<string>): int {
     println("Hello from TypeX!");
 
     for (let {index, value} in argv) {
-        println("[{index}]: {value}");
+        println("[{}]: {}", index, value);
     }
 
     return 0;
@@ -83,7 +83,7 @@ TypeX is designed around a few core ideas:
 ## Quick Example
 
 ```tx
-import { fs } from "std/fs";
+import { readFile } from "tx:fs";
 
 function divide(numerator: int, denominator: int): Result<int, string> {
     if (denominator == 0) {
@@ -94,17 +94,18 @@ function divide(numerator: int, denominator: int): Result<int, string> {
 }
 
 function main(argv: Array<string>): int {
-    match divide(10, 2) {
-        Ok(result) => println("Success! The answer is: {result}"),
-        Err(error) => println("Error occurred: {error}"),
+    const answer: int = match divide(10, 2) {
+        Ok(result) => result,
+        Err(error) => 0,
+    };
+    println("Success! The answer is: {}", answer);
+
+    const greeting: string = match readFile("hello.txt") {
+        Ok(content) => content,
+        Err(error) => "Could not read hello.txt",
     };
 
-    const greeting = match fs.read("hello.txt") {
-        Ok(file) => file.content,
-        Err(error) => panic("Problem opening the file: {}", error.message),
-    };
-
-    println("{greeting}");
+    println("{}", greeting);
 
     return 0;
 }
@@ -201,7 +202,7 @@ Instead, string access and modification are handled through standard library fun
 
 ```tx
 for (let {index, value} in message) {
-    println("[{index}]: {value}");
+    println("[{}]: {}", index, value);
 }
 ```
 
@@ -209,17 +210,17 @@ Byte offsets can also be exposed:
 
 ```tx
 for (let {index, offset, value} in message) {
-    println("[{index}] byte {offset}: {value}");
+    println("[{}] byte {}: {}", index, offset, value);
 }
 ```
 
 Intended iteration fields:
 
-| Field    | Type   | Meaning                      |
-| -------- | ------ | ---------------------------- |
-| `index`  | `uint` | character/scalar index       |
-| `offset` | `uint` | UTF-8 byte offset            |
-| `value`  | `char` | current Unicode scalar value |
+| Field    | Type     | Meaning                                  |
+| -------- | -------- | ---------------------------------------- |
+| `index`  | `uint`   | character/scalar index                   |
+| `offset` | `uint`   | UTF-8 byte offset                        |
+| `value`  | `string` | current Unicode scalar value as a string |
 
 ### Nullability
 
@@ -266,16 +267,18 @@ Arrays are represented with `Array<T>`.
 
 ```tx
 const numbers: Array<int> = [1, 2, 3, 4];
+let total: int = 0;
 
-const doubled = numbers.map((n: int): int => n * 2);
-const evens = numbers.filter((n: int): boolean => n % 2 == 0);
+for (let {value} in numbers) {
+    total = total + value;
+}
 ```
 
 Array iteration supports destructuring:
 
 ```tx
 for (let {index, value} in numbers) {
-    println("[{index}]: {value}");
+    println("[{}]: {}", index, value);
 }
 ```
 
@@ -283,36 +286,30 @@ You can destructure only the fields you need:
 
 ```tx
 for (let {value} in numbers) {
-    println("{value}");
+    println("{}", value);
 }
 
 for (let {index} in numbers) {
-    println("{index}");
+    println("{}", index);
 }
 ```
 
 ### Records
 
-`Record<K, V>` represents a dynamic key-value map.
+Records are dynamic key-value maps. Record literals are supported today; richer record type checking is planned.
 
 ```tx
-const person: Record<string, string | uint> = {
+const person = {
     name: "Zaphod Beeblebrox",
-    age: 42,
+    species: "Betelgeusian",
 };
 ```
-
-Rules:
-
-- `K` must be a hashable primitive type
-- valid key types include strings, numerics, and enums
-- `V` can be any type
 
 Record iteration:
 
 ```tx
 for (let {key, value} of person) {
-    println("{key}: {value}");
+    println("{}: {}", key, value);
 }
 ```
 
@@ -320,19 +317,23 @@ Record iteration order is not guaranteed.
 
 ### Object Types
 
-TypeX supports TypeScript-style object type aliases.
+TypeScript-style object type aliases are planned. Today, use record literals for dynamic object-like data.
+
+```tx
+const user = {
+    id: "1",
+    name: "Ada",
+    email: "ada@example.test",
+};
+```
+
+Planned object type syntax:
 
 ```tx
 type User = {
     id: uint,
     name: string,
     email: string | null,
-};
-
-const user: User = {
-    id: 1,
-    name: "Ada",
-    email: null,
 };
 ```
 
@@ -341,7 +342,13 @@ const user: User = {
 Union types are written with `|`.
 
 ```tx
-type Status = "pending" | "approved" | "rejected";
+type Status = string;
+
+enum ReviewStatus {
+    Pending = "pending",
+    Approved = "approved",
+    Rejected = "rejected",
+}
 
 let status: Status = "pending";
 let maybeName: string | null = null;
@@ -351,32 +358,24 @@ let maybeName: string | null = null;
 
 TypeX enums are inspired by Rust and TypeScript.
 
-Simple numeric enums auto-increment from `0` by default:
+Numeric enums currently use explicit values:
 
 ```tx
 enum Flags {
-    Read,
-    Write,
+    Read = 0,
+    Write = 1,
 }
-
-Flags.Read;  // 0
-Flags.Write; // 1
 ```
 
-Explicit numeric values are supported:
+Additional explicit numeric values are supported:
 
 ```tx
 enum Options {
-    Optimised,
+    Optimised = 0,
     Strict = 7,
-    Debug,
+    Debug = 8,
     DryRun = 77,
 }
-
-Options.Optimised; // 0
-Options.Strict;    // 7
-Options.Debug;     // 8
-Options.DryRun;    // 77
 ```
 
 String enums are supported:
@@ -387,20 +386,19 @@ enum Colours {
     Green = "#0f0",
     Blue = "#00f",
 }
-
-print("red: {}", Colours.Red);
 ```
 
 Reverse lookup is planned for string enums:
 
 ```tx
-Colours["#0f0"] == Colours.Green; // true
-Colours["#00f"] == Colours.Red;   // false
+// Planned syntax, not implemented yet:
+Colours["#0f0"] == Colours.Green;
 ```
 
 Rust-style enums with associated data are also part of the language direction:
 
 ```tx
+// Planned syntax, not implemented yet:
 enum ParseError {
     MissingField(string),
     InvalidNumber(string),
@@ -428,18 +426,22 @@ function divide(numerator: int, denominator: int): Result<int, string> {
 Use `match` to handle success and failure:
 
 ```tx
-match divide(10, 0) {
-    Ok(result) => println("Success! The answer is: {result}"),
-    Err(error) => println("Error occurred: {error}"),
+const answer: int = match divide(10, 0) {
+    Ok(result) => result,
+    Err(error) => -1,
 };
+
+println("answer = {}", answer);
 ```
 
 `match` can also be used as an expression:
 
 ```tx
-const greeting = match fs.read("hello.txt") {
-    Ok(file) => file.content,
-    Err(error) => panic("Problem opening the file: {}", error.message),
+import { readFile } from "tx:fs";
+
+const greeting: string = match readFile("hello.txt") {
+    Ok(content) => content,
+    Err(error) => "Could not read hello.txt",
 };
 ```
 
@@ -448,17 +450,12 @@ const greeting = match fs.read("hello.txt") {
 `match` is used for exhaustive matching over `Result` and enums.
 
 ```tx
-enum Status {
-    Pending,
-    Approved,
-    Rejected,
-}
-
-function label(status: Status): string {
+function label(status: string): string {
     return match status {
-        Status.Pending => "Pending",
-        Status.Approved => "Approved",
-        Status.Rejected => "Rejected",
+        Pending => "Pending",
+        Approved => "Approved",
+        Rejected => "Rejected",
+        _ => "Unknown",
     };
 }
 ```
@@ -494,6 +491,7 @@ const isAnswer = (n: int32): boolean => n == 42;
 Basic generics are planned for v1.
 
 ```tx
+// Planned syntax, not implemented yet:
 function first<T>(items: Array<T>): T | null {
     if (items.length == 0) {
         return null;
@@ -508,12 +506,14 @@ function first<T>(items: Array<T>): T | null {
 Array destructuring:
 
 ```tx
+// Planned syntax, not implemented yet:
 let [first, second] = getThings();
 ```
 
 Object destructuring:
 
 ```tx
+// Planned syntax, not implemented yet:
 let {foo, bar} = getThing();
 ```
 
@@ -544,11 +544,11 @@ There is no loose equality.
 For complex/reference types, equality is reference-based unless otherwise specified.
 
 ```tx
-const a = [1, 2, 3];
-const b = [1, 2, 3];
+const a: Array<int> = [1, 2, 3];
+const b: Array<int> = [1, 2, 3];
 
-a == b;              // false if different array references
-Array.equals(a, b);  // value comparison
+const same: boolean = a.equals(b);
+println("same values: {}", same);
 ```
 
 A deep equality helper may be provided by the standard library later.
@@ -570,13 +570,13 @@ if (age >= 18) {
 Ternary expressions:
 
 ```tx
-const status = age >= 18 ? "Adult" : "Minor";
+const status: string = age >= 18 ? "Adult" : "Minor";
 ```
 
 Switch statements:
 
 ```tx
-switch code {
+switch (code) {
     case 200:
         println("OK");
     case 404:
@@ -592,7 +592,7 @@ Array iteration:
 
 ```tx
 for (let {index, value} in array) {
-    println("[{index}]: {value}");
+    println("[{}]: {}", index, value);
 }
 ```
 
@@ -600,13 +600,14 @@ Record iteration:
 
 ```tx
 for (let {key, value} of record) {
-    println("{key}: {value}");
+    println("{}: {}", key, value);
 }
 ```
 
 Object-style iteration is planned, with iteration order not guaranteed.
 
 ```tx
+// Planned syntax, not implemented yet:
 for (let x of object) {
     print(x.key);
 }
@@ -617,8 +618,8 @@ for (let x of object) {
 TypeX includes Rust-inspired formatting helpers.
 
 ```tx
-print("hi {} {} {}, {name}", 1, "two", 3.1415);
-println("Hello {name}{}", "!");
+print("hi {} {} {}", 1, "two", 3.1415);
+println("Hello {}{}", name, "!");
 ```
 
 Planned builtins:
@@ -626,7 +627,7 @@ Planned builtins:
 ```tx
 print("message");
 println("message");
-panic("message: {err.message}");
+panic("message: {}", err);
 ```
 
 `panic` exits with a failure code and is intended for unrecoverable errors.
@@ -695,11 +696,11 @@ Entrypoint behaviour:
 
 ## Semicolons
 
-Semicolons are required to end expressions.
+Semicolons are required for declarations, returns, and expression statements.
 
 ```tx
-const name = "Trillian";
-println("Hello {name}");
+const name: string = "Trillian";
+println("Hello {}", name);
 ```
 
 ## Standard Library
