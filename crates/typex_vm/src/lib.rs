@@ -225,16 +225,21 @@ impl Vm {
     // ------------------------------------------------------------------
 
     fn call_function(&mut self, f: &FunctionDef, args: Vec<Value>) -> RuntimeResult<Value> {
-        // save current env and start fresh for this call
+        // save current env but keep the global (bottom) scope
         let saved_env = std::mem::replace(&mut self.env, Env::new());
 
-        // push scope for params
+        // copy global scope into new env so functions can see top-level bindings
+        if let Some(global) = saved_env.scopes.first() {
+            if let Some(new_global) = self.env.scopes.first_mut() {
+                *new_global = global.clone();
+            }
+        }
+
         self.env.push();
         for (param, val) in f.params.iter().zip(args.into_iter()) {
             self.env.define(param.name.name.clone(), val);
         }
 
-        // execute body directly without extra block scope
         let mut result = Ok(Value::Void);
         for stmt in &f.body.stmts {
             match self.exec_stmt(stmt) {
@@ -247,8 +252,6 @@ impl Vm {
         }
 
         self.env.pop();
-
-        // restore previous env
         self.env = saved_env;
 
         match result {
@@ -1097,5 +1100,31 @@ mod tests {
             }
         "#;
         assert_eq!(run_src(src).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_global_const_visible_in_function() {
+        let src = r#"
+        const greeting: string = "hello";
+        const count: int = 42;
+        function main(): int {
+            return count;
+        }
+    "#;
+        assert_eq!(run_src(src).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_global_function_callable_from_main() {
+        let src = r#"
+        function double(n: int): int {
+            return n + n;
+        }
+        const base: int = 21;
+        function main(): int {
+            return double(base);
+        }
+    "#;
+        assert_eq!(run_src(src).unwrap(), 42);
     }
 }

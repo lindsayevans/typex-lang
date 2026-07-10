@@ -631,10 +631,10 @@ impl<'a> FnCompiler<'a> {
                     )),
                 }
             }
-            _ => {
-                // unsupported in v1 codegen - return 0
-                Ok(self.builder.ins().iconst(I64, 0))
-            }
+            _ => Err(CodegenError(format!(
+                "unsupported expression in codegen: {:?}",
+                std::mem::discriminant(expr)
+            ))),
         }
     }
 

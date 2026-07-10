@@ -558,6 +558,13 @@ impl Typechecker {
                 ..
             } => {
                 self.check_expr(iter);
+                let saved_key = key
+                    .as_ref()
+                    .map(|k| (k.name.clone(), self.env.vars.remove(&k.name)));
+                let saved_val = value
+                    .as_ref()
+                    .map(|v| (v.name.clone(), self.env.vars.remove(&v.name)));
+
                 if let Some(k) = key {
                     self.env.define_var(k.name.clone(), Ty::String);
                 }
@@ -565,6 +572,23 @@ impl Typechecker {
                     self.env.define_var(v.name.clone(), Ty::Unknown);
                 }
                 self.check_block(body);
+
+                if let Some((name, prev)) = saved_key {
+                    match prev {
+                        Some(ty) => self.env.define_var(name, ty),
+                        None => {
+                            self.env.vars.remove(&name);
+                        }
+                    }
+                }
+                if let Some((name, prev)) = saved_val {
+                    match prev {
+                        Some(ty) => self.env.define_var(name, ty),
+                        None => {
+                            self.env.vars.remove(&name);
+                        }
+                    }
+                }
             }
             ForStmt::Str {
                 index,
@@ -581,6 +605,17 @@ impl Typechecker {
                         format!("string 'in' loop expects string, got '{}'", iter_ty),
                     );
                 }
+
+                let saved: Vec<(String, Option<Ty>)> = [
+                    index.as_ref().map(|i| i.name.clone()),
+                    offset.as_ref().map(|o| o.name.clone()),
+                    value.as_ref().map(|v| v.name.clone()),
+                ]
+                .iter()
+                .flatten()
+                .map(|name| (name.clone(), self.env.vars.remove(name)))
+                .collect();
+
                 if let Some(i) = index {
                     self.env.define_var(i.name.clone(), Ty::Uint64);
                 }
@@ -591,6 +626,15 @@ impl Typechecker {
                     self.env.define_var(v.name.clone(), Ty::String);
                 }
                 self.check_block(body);
+
+                for (name, prev) in saved {
+                    match prev {
+                        Some(ty) => self.env.define_var(name, ty),
+                        None => {
+                            self.env.vars.remove(&name);
+                        }
+                    }
+                }
             }
         }
     }

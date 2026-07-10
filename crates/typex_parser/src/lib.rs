@@ -655,8 +655,20 @@ impl Parser {
         self.expect(&TokenKind::LBrace)?;
         let mut arms = Vec::new();
         while self.peek() != &TokenKind::RBrace && self.peek() != &TokenKind::Eof {
+            let pos_before = self.pos; // track progress
             if let Some(arm) = self.parse_match_arm() {
                 arms.push(arm);
+            } else {
+                // if we didn't advance, force progress to avoid infinite loop
+                if self.pos == pos_before {
+                    let span = self.current_span();
+                    self.diagnostics.push(Diagnostic {
+                        level: Level::Error,
+                        span,
+                        message: format!("unexpected token in match arm: {:?}", self.peek()),
+                    });
+                    self.advance();
+                }
             }
             self.eat(&TokenKind::Comma);
         }
@@ -1280,5 +1292,20 @@ mod tests {
         let (module, diags) = parse_src(src);
         assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
         assert_eq!(module.items.len(), 2);
+    }
+
+    #[test]
+    fn test_malformed_match_no_hang() {
+        // should error and exit, not hang
+        let src = r#"
+        function main(): int {
+            match x {
+                => 1,
+            }
+            return 0;
+        }
+    "#;
+        let (_, diags) = parse_src(src);
+        assert!(!diags.is_empty());
     }
 }

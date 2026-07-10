@@ -56,6 +56,7 @@ impl Scope {
 pub struct Resolver {
     scopes: Vec<Scope>,
     pub diagnostics: Vec<Diagnostic>,
+    in_function: bool,
 }
 
 impl Resolver {
@@ -63,6 +64,7 @@ impl Resolver {
         let mut r = Self {
             scopes: Vec::new(),
             diagnostics: Vec::new(),
+            in_function: false,
         };
         r.push_scope(); // global scope
         r.define_builtins();
@@ -134,6 +136,18 @@ impl Resolver {
             span,
             message: message.into(),
         });
+    }
+
+    fn lookup_scope_depth(&self, name: &str) -> Option<usize> {
+        // iterate from innermost to outermost
+        // return 0 for global (outermost) scope
+        for (i, scope) in self.scopes.iter().enumerate().rev() {
+            if scope.get(name).is_some() {
+                // i == 0 means global scope
+                return Some(i);
+            }
+        }
+        None
     }
 
     // ------------------------------------------------------------------
@@ -219,6 +233,8 @@ impl Resolver {
 
     fn resolve_function(&mut self, f: &FunctionDef) {
         self.push_scope();
+        let was_in_function = self.in_function;
+        self.in_function = true;
         for param in &f.params {
             self.define(Symbol {
                 name: param.name.name.clone(),
@@ -231,6 +247,7 @@ impl Resolver {
             self.resolve_type_expr(ret);
         }
         self.resolve_block(&f.body);
+        self.in_function = was_in_function;
         self.pop_scope();
     }
 
@@ -471,6 +488,8 @@ impl Resolver {
             Expr::Match(m) => self.resolve_match(m),
             Expr::Arrow(a) => {
                 self.push_scope();
+                let was_in_function = self.in_function;
+                self.in_function = true;
                 for param in &a.params {
                     self.define(Symbol {
                         name: param.name.name.clone(),
@@ -482,6 +501,7 @@ impl Resolver {
                     ArrowBody::Expr(e) => self.resolve_expr(e),
                     ArrowBody::Block(b) => self.resolve_block(b),
                 }
+                self.in_function = was_in_function;
                 self.pop_scope();
             }
             Expr::Array(elements, _) => {
@@ -495,9 +515,26 @@ impl Resolver {
                 }
             }
             Expr::Destructure(_) => {}
-            Expr::Assign(lhs, rhs, _) => {
+            Expr::Assign(lhs, rhs, span) => {
                 self.resolve_expr(lhs);
                 self.resolve_expr(rhs);
+                // reject assignment to global scope binding from inside a function
+                if self.in_function {
+                    if let Expr::Ident(i) = lhs.as_ref() {
+                        if let Some(depth) = self.lookup_scope_depth(&i.name) {
+                            if depth == 0 {
+                                self.error(
+                                    *span,
+                                    format!(
+                                        "cannot assign to global '{}' from inside a function; \
+                         pass it as a parameter and return the new value instead",
+                                        i.name
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -632,5 +669,110 @@ mod tests {
                 .message
                 .contains("export 'doesNotExist' is not defined")
         );
+    }
+
+    #[test]
+    fn test_global_assignment_in_function_rejected() {
+        let src = r#"
+        let count: int = 0;
+        function inc() {
+            count = count + 1;
+        }
+    "#;
+        let diags = resolve_src(src);
+        assert!(!diags.is_empty());
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.message.contains("cannot assign to global"))
+        );
+    }
+
+    #[test]
+    fn test_global_read_in_function_allowed() {
+        let src = r#"
+        const greeting: string = "hello";
+        function main(): int {
+            println(greeting);
+            return 0;
+        }
+    "#;
+        let diags = resolve_src(src);
+        assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
+    }
+
+    #[test]
+    fn test_local_assignment_in_function_allowed() {
+        let src = r#"
+        function main(): int {
+            let x: int = 0;
+            x = x + 1;
+            return x;
+        }
+    "#;
+        let diags = resolve_src(src);
+        assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
+    }
+
+    #[test]
+    fn test_local_shadow_of_global_assignable() {
+        let src = r#"
+        let x: int = 0;
+        function main(): int {
+            let x: int = 1;
+            x = x + 1;
+            return x;
+        }
+    "#;
+        let diags = resolve_src(src);
+        assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
+    }
+
+    #[test]
+    fn test_param_shadow_of_global_assignable() {
+        let src = r#"
+        let x: int = 0;
+        function foo(x: int): int {
+            x = x + 1;
+            return x;
+        }
+        function main(): int {
+            return foo(41);
+        }
+    "#;
+        let diags = resolve_src(src);
+        assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
+    }
+
+    #[test]
+    fn test_arrow_fn_cannot_assign_to_global() {
+        let src = r#"
+        let count: int = 0;
+        const inc = (): int => {
+            count = count + 1;
+            return count;
+        };
+    "#;
+        let diags = resolve_src(src);
+        assert!(!diags.is_empty());
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.message.contains("cannot assign to global"))
+        );
+    }
+
+    #[test]
+    fn test_arrow_fn_local_shadow_allowed() {
+        let src = r#"
+        let count: int = 0;
+        const inc = (): int => {
+            let count: int = 1;
+            count = count + 1;
+            return count;
+        };
+    "#;
+        let diags = resolve_src(src);
+        assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
     }
 }
