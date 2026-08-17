@@ -24,6 +24,11 @@ pub enum Ty {
     String,
     Null,
 
+    // Temporal
+    Date,
+    Time,
+    DateTime,
+
     // Compound
     Array(Box<Ty>),
     Result(Box<Ty>, Box<Ty>),
@@ -76,6 +81,9 @@ impl std::fmt::Display for Ty {
             Ty::Char => write!(f, "char"),
             Ty::String => write!(f, "string"),
             Ty::Null => write!(f, "null"),
+            Ty::Date => write!(f, "Date"),
+            Ty::Time => write!(f, "Time"),
+            Ty::DateTime => write!(f, "DateTime"),
             Ty::Array(inner) => write!(f, "Array<{}>", inner),
             Ty::Result(ok, err) => write!(f, "Result<{}, {}>", ok, err),
             Ty::Generic(name, args) => {
@@ -256,6 +264,9 @@ impl Typechecker {
             "char" => Ty::Char,
             "string" => Ty::String,
             "null" => Ty::Null,
+            "Date" => Ty::Date,
+            "Time" => Ty::Time,
+            "DateTime" => Ty::DateTime,
             other => Ty::Named(other.to_string()),
         }
     }

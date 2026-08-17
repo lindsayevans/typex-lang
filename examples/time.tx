@@ -1,0 +1,47 @@
+import { now, today, currentTime, date, time, dateTime, year, month, day, hour, minute, second, format, addDays, isBefore, isAfter } from "tx:time";
+
+function main(): int {
+    // current date/time
+    const dt: DateTime = now();
+    const d: Date = today();
+    const t: Time = currentTime();
+
+    println("now: {}", dt);
+    println("today: {}", d);
+    println("currentTime: {}", t);
+
+    // construct specific date
+    const birthday: Date = date(2024, 3, 21);
+    println("birthday: {}", birthday);
+    println("year: {}", year(birthday));
+    println("month: {}", month(birthday));
+    println("day: {}", day(birthday));
+
+    // construct specific time
+    const meeting: Time = time(14, 30, 0, 0);
+    println("meeting: {}", meeting);
+    println("hour: {}", hour(meeting));
+    println("minute: {}", minute(meeting));
+    println("second: {}", second(meeting));
+
+    // construct specific datetime
+    const launch: DateTime = dateTime(2024, 6, 15, 9, 0, 0, 0);
+    println("launch: {}", launch);
+
+    // formatting
+    println("formatted date: {}", format(birthday, "YYYY-MM-DD"));
+    println("formatted time: {}", format(meeting, "HH:mm:ss"));
+    println("formatted datetime: {}", format(launch, "YYYY-MM-DD HH:mm:ss"));
+
+    // arithmetic
+    const nextWeek: Date = addDays(d, 7);
+    println("next week: {}", nextWeek);
+
+    // comparison
+    const jan: Date = date(2024, 1, 1);
+    const dec: Date = date(2024, 12, 31);
+    println("jan before dec: {}", isBefore(jan, dec));
+    println("jan after dec: {}", isAfter(jan, dec));
+
+    return 0;
+}

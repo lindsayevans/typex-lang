@@ -637,10 +637,30 @@ impl Vm {
             ),
             BinOp::Eq => Ok(Value::Bool(values_equal(&lv, &rv))),
             BinOp::NotEq => Ok(Value::Bool(!values_equal(&lv, &rv))),
-            BinOp::Lt => numeric_cmp(&lv, &rv, |a, b| a < b, |a, b| a < b),
-            BinOp::Lte => numeric_cmp(&lv, &rv, |a, b| a <= b, |a, b| a <= b),
-            BinOp::Gt => numeric_cmp(&lv, &rv, |a, b| a > b, |a, b| a > b),
-            BinOp::Gte => numeric_cmp(&lv, &rv, |a, b| a >= b, |a, b| a >= b),
+            BinOp::Lt => match (&lv, &rv) {
+                (Value::Date(a), Value::Date(b)) => Ok(Value::Bool(a < b)),
+                (Value::Time(a), Value::Time(b)) => Ok(Value::Bool(a < b)),
+                (Value::DateTime(a), Value::DateTime(b)) => Ok(Value::Bool(a < b)),
+                _ => numeric_cmp(&lv, &rv, |a, b| a < b, |a, b| a < b),
+            },
+            BinOp::Lte => match (&lv, &rv) {
+                (Value::Date(a), Value::Date(b)) => Ok(Value::Bool(a <= b)),
+                (Value::Time(a), Value::Time(b)) => Ok(Value::Bool(a <= b)),
+                (Value::DateTime(a), Value::DateTime(b)) => Ok(Value::Bool(a <= b)),
+                _ => numeric_cmp(&lv, &rv, |a, b| a <= b, |a, b| a <= b),
+            },
+            BinOp::Gt => match (&lv, &rv) {
+                (Value::Date(a), Value::Date(b)) => Ok(Value::Bool(a > b)),
+                (Value::Time(a), Value::Time(b)) => Ok(Value::Bool(a > b)),
+                (Value::DateTime(a), Value::DateTime(b)) => Ok(Value::Bool(a > b)),
+                _ => numeric_cmp(&lv, &rv, |a, b| a > b, |a, b| a > b),
+            },
+            BinOp::Gte => match (&lv, &rv) {
+                (Value::Date(a), Value::Date(b)) => Ok(Value::Bool(a >= b)),
+                (Value::Time(a), Value::Time(b)) => Ok(Value::Bool(a >= b)),
+                (Value::DateTime(a), Value::DateTime(b)) => Ok(Value::Bool(a >= b)),
+                _ => numeric_cmp(&lv, &rv, |a, b| a >= b, |a, b| a >= b),
+            },
             BinOp::And => Ok(Value::Bool(lv.is_truthy() && rv.is_truthy())),
             BinOp::Or => Ok(Value::Bool(lv.is_truthy() || rv.is_truthy())),
         }
@@ -924,6 +944,10 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         // mixed int/uint comparison
         (Value::Int(a), Value::Uint(b)) => *a >= 0 && *a as u64 == *b,
         (Value::Uint(a), Value::Int(b)) => *b >= 0 && *a == *b as u64,
+        // temporal
+        (Value::Date(a), Value::Date(b)) => a == b,
+        (Value::Time(a), Value::Time(b)) => a == b,
+        (Value::DateTime(a), Value::DateTime(b)) => a == b,
         _ => false,
     }
 }

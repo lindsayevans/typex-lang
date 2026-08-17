@@ -209,6 +209,10 @@ impl Backend {
             ),
             ("tx:process", "exec, exit"),
             ("tx:env", "getenv, setenv, args, cwd"),
+            (
+                "tx:time",
+                "now, today, currentTime, date, time, dateTime, format, addDays, isBefore, isAfter",
+            ),
         ];
 
         modules
@@ -1084,6 +1088,31 @@ fn build_builtin_symbols() -> Vec<SymbolInfo> {
         ),
         ("tx:process", vec!["exec", "exit"]),
         ("tx:env", vec!["getenv", "setenv", "args", "cwd"]),
+        (
+            "tx:time",
+            vec![
+                "now",
+                "today",
+                "currentTime",
+                "date",
+                "time",
+                "dateTime",
+                "year",
+                "month",
+                "day",
+                "hour",
+                "minute",
+                "second",
+                "millisecond",
+                "format",
+                "toDateTime",
+                "addDays",
+                "addMilliseconds",
+                "diffMilliseconds",
+                "isBefore",
+                "isAfter",
+            ],
+        ),
     ] {
         for f in fns {
             symbols.push(SymbolInfo {

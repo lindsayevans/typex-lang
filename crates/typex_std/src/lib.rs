@@ -39,6 +39,7 @@ impl StdRegistry {
         r.modules.insert("tx:io".to_string(), io::module());
         r.modules.insert("tx:math".to_string(), math::module());
         r.modules.insert("tx:env".to_string(), env::module());
+        r.modules.insert("tx:time".to_string(), time::module());
 
         r
     }
@@ -395,6 +396,311 @@ pub mod process {
     }
 }
 
+// ------------------------------------------------------------------
+// tx:time
+// ------------------------------------------------------------------
+
+pub mod time {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use typex_runtime::{days_to_ymd, ymd_to_days};
+
+    pub fn module() -> StdModule {
+        let mut m = StdModule::new();
+        m.register("now", now);
+        m.register("today", today);
+        m.register("currentTime", current_time);
+        m.register("dateTime", date_time);
+        m.register("date", date);
+        m.register("time", time);
+        m.register("year", year);
+        m.register("month", month);
+        m.register("day", day);
+        m.register("hour", hour);
+        m.register("minute", minute);
+        m.register("second", second);
+        m.register("millisecond", millisecond);
+        m.register("format", format);
+        m.register("toDateTime", to_date_time);
+        m.register("addDays", add_days);
+        m.register("addMilliseconds", add_milliseconds);
+        m.register("diffMilliseconds", diff_milliseconds);
+        m.register("isBefore", is_before);
+        m.register("isAfter", is_after);
+        m
+    }
+
+    fn unix_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64
+    }
+
+    // now() -> DateTime (current UTC datetime)
+    fn now(_args: Vec<Value>) -> RuntimeResult<Value> {
+        Ok(Value::DateTime(unix_ms()))
+    }
+
+    // today() -> Date (current UTC date)
+    fn today(_args: Vec<Value>) -> RuntimeResult<Value> {
+        let ms = unix_ms();
+        let days = ms.div_euclid(86_400_000);
+        Ok(Value::Date(days))
+    }
+
+    // currentTime() -> Time (current UTC time)
+    fn current_time(_args: Vec<Value>) -> RuntimeResult<Value> {
+        let ms = unix_ms();
+        let time_ms = ms.rem_euclid(86_400_000) as u32;
+        Ok(Value::Time(time_ms))
+    }
+
+    // dateTime(year, month, day, hour, minute, second, ms) -> DateTime
+    fn date_time(args: Vec<Value>) -> RuntimeResult<Value> {
+        let y = require_int(&args, 0, "dateTime")? as i32;
+        let m = require_int(&args, 1, "dateTime")? as u32;
+        let d = require_int(&args, 2, "dateTime")? as u32;
+        let h = if args.len() > 3 {
+            require_int(&args, 3, "dateTime")?
+        } else {
+            0
+        };
+        let min = if args.len() > 4 {
+            require_int(&args, 4, "dateTime")?
+        } else {
+            0
+        };
+        let s = if args.len() > 5 {
+            require_int(&args, 5, "dateTime")?
+        } else {
+            0
+        };
+        let ms = if args.len() > 6 {
+            require_int(&args, 6, "dateTime")?
+        } else {
+            0
+        };
+        let days = ymd_to_days(y, m, d);
+        let time_ms = h * 3_600_000 + min * 60_000 + s * 1_000 + ms;
+        Ok(Value::DateTime(days * 86_400_000 + time_ms))
+    }
+
+    // date(year, month, day) -> Date
+    fn date(args: Vec<Value>) -> RuntimeResult<Value> {
+        let y = require_int(&args, 0, "date")? as i32;
+        let m = require_int(&args, 1, "date")? as u32;
+        let d = require_int(&args, 2, "date")? as u32;
+        Ok(Value::Date(ymd_to_days(y, m, d)))
+    }
+
+    // time(hour, minute, second, ms?) -> Time
+    fn time(args: Vec<Value>) -> RuntimeResult<Value> {
+        let h = require_int(&args, 0, "time")?;
+        let m = require_int(&args, 1, "time")?;
+        let s = require_int(&args, 2, "time")?;
+        let ms = if args.len() > 3 {
+            require_int(&args, 3, "time")?
+        } else {
+            0
+        };
+        let total = (h * 3_600_000 + m * 60_000 + s * 1_000 + ms) as u32;
+        Ok(Value::Time(total))
+    }
+
+    // year(Date | DateTime) -> int
+    fn year(args: Vec<Value>) -> RuntimeResult<Value> {
+        let days = extract_days(&args, 0, "year")?;
+        let (y, _, _) = days_to_ymd(days);
+        Ok(Value::Int(y as i64))
+    }
+
+    // month(Date | DateTime) -> int
+    fn month(args: Vec<Value>) -> RuntimeResult<Value> {
+        let days = extract_days(&args, 0, "month")?;
+        let (_, m, _) = days_to_ymd(days);
+        Ok(Value::Int(m as i64))
+    }
+
+    // day(Date | DateTime) -> int
+    fn day(args: Vec<Value>) -> RuntimeResult<Value> {
+        let days = extract_days(&args, 0, "day")?;
+        let (_, _, d) = days_to_ymd(days);
+        Ok(Value::Int(d as i64))
+    }
+
+    // hour(Time | DateTime) -> int
+    fn hour(args: Vec<Value>) -> RuntimeResult<Value> {
+        let ms = extract_time_ms(&args, 0, "hour")?;
+        Ok(Value::Int((ms / 3_600_000) as i64))
+    }
+
+    // minute(Time | DateTime) -> int
+    fn minute(args: Vec<Value>) -> RuntimeResult<Value> {
+        let ms = extract_time_ms(&args, 0, "minute")?;
+        Ok(Value::Int(((ms / 60_000) % 60) as i64))
+    }
+
+    // second(Time | DateTime) -> int
+    fn second(args: Vec<Value>) -> RuntimeResult<Value> {
+        let ms = extract_time_ms(&args, 0, "second")?;
+        Ok(Value::Int(((ms / 1_000) % 60) as i64))
+    }
+
+    // millisecond(Time | DateTime) -> int
+    fn millisecond(args: Vec<Value>) -> RuntimeResult<Value> {
+        let ms = extract_time_ms(&args, 0, "millisecond")?;
+        Ok(Value::Int((ms % 1_000) as i64))
+    }
+
+    // format(Date | Time | DateTime, pattern) -> string
+    fn format(args: Vec<Value>) -> RuntimeResult<Value> {
+        let pattern = require_string(&args, 1, "format")?;
+        match args.first() {
+            Some(Value::Date(days)) => {
+                let (y, m, d) = days_to_ymd(*days);
+                let s = pattern
+                    .replace("YYYY", &format!("{:04}", y))
+                    .replace("MM", &format!("{:02}", m))
+                    .replace("DD", &format!("{:02}", d));
+                Ok(Value::Str(s))
+            }
+            Some(Value::Time(ms)) => {
+                let h = ms / 3_600_000;
+                let min = (ms / 60_000) % 60;
+                let s = (ms / 1_000) % 60;
+                let millis = ms % 1_000;
+                let result = pattern
+                    .replace("HH", &format!("{:02}", h))
+                    .replace("mm", &format!("{:02}", min))
+                    .replace("ss", &format!("{:02}", s))
+                    .replace("SSS", &format!("{:03}", millis));
+                Ok(Value::Str(result))
+            }
+            Some(Value::DateTime(ms)) => {
+                let days = ms.div_euclid(86_400_000);
+                let time_ms = ms.rem_euclid(86_400_000) as u32;
+                let (y, mo, d) = days_to_ymd(days);
+                let h = time_ms / 3_600_000;
+                let min = (time_ms / 60_000) % 60;
+                let s = (time_ms / 1_000) % 60;
+                let millis = time_ms % 1_000;
+                let result = pattern
+                    .replace("YYYY", &format!("{:04}", y))
+                    .replace("MM", &format!("{:02}", mo))
+                    .replace("DD", &format!("{:02}", d))
+                    .replace("HH", &format!("{:02}", h))
+                    .replace("mm", &format!("{:02}", min))
+                    .replace("ss", &format!("{:02}", s))
+                    .replace("SSS", &format!("{:03}", millis));
+                Ok(Value::Str(result))
+            }
+            _ => Err(RuntimeError::new(
+                "format: expected Date, Time, or DateTime",
+            )),
+        }
+    }
+
+    // toDateTime(Date) -> DateTime (midnight UTC)
+    fn to_date_time(args: Vec<Value>) -> RuntimeResult<Value> {
+        match args.first() {
+            Some(Value::Date(days)) => Ok(Value::DateTime(days * 86_400_000)),
+            Some(Value::DateTime(ms)) => Ok(Value::DateTime(*ms)),
+            _ => Err(RuntimeError::new("toDateTime: expected Date or DateTime")),
+        }
+    }
+
+    // addDays(Date | DateTime, days) -> same type
+    fn add_days(args: Vec<Value>) -> RuntimeResult<Value> {
+        let n = require_int(&args, 1, "addDays")?;
+        match args.first() {
+            Some(Value::Date(days)) => Ok(Value::Date(days + n)),
+            Some(Value::DateTime(ms)) => Ok(Value::DateTime(ms + n * 86_400_000)),
+            _ => Err(RuntimeError::new("addDays: expected Date or DateTime")),
+        }
+    }
+
+    // addMilliseconds(DateTime | Time, ms) -> same type
+    fn add_milliseconds(args: Vec<Value>) -> RuntimeResult<Value> {
+        let n = require_int(&args, 1, "addMilliseconds")?;
+        match args.first() {
+            Some(Value::DateTime(ms)) => Ok(Value::DateTime(ms + n)),
+            Some(Value::Time(ms)) => Ok(Value::Time((*ms as i64 + n) as u32)),
+            _ => Err(RuntimeError::new(
+                "addMilliseconds: expected DateTime or Time",
+            )),
+        }
+    }
+
+    // diffMilliseconds(DateTime, DateTime) -> int
+    fn diff_milliseconds(args: Vec<Value>) -> RuntimeResult<Value> {
+        match (args.first(), args.get(1)) {
+            (Some(Value::DateTime(a)), Some(Value::DateTime(b))) => Ok(Value::Int(a - b)),
+            _ => Err(RuntimeError::new(
+                "diffMilliseconds: expected two DateTimes",
+            )),
+        }
+    }
+
+    // isBefore(a: DateTime, b: DateTime) -> boolean
+    fn is_before(args: Vec<Value>) -> RuntimeResult<Value> {
+        match (args.first(), args.get(1)) {
+            (Some(Value::DateTime(a)), Some(Value::DateTime(b))) => Ok(Value::Bool(a < b)),
+            (Some(Value::Date(a)), Some(Value::Date(b))) => Ok(Value::Bool(a < b)),
+            (Some(Value::Time(a)), Some(Value::Time(b))) => Ok(Value::Bool(a < b)),
+            _ => Err(RuntimeError::new("isBefore: type mismatch")),
+        }
+    }
+
+    // isAfter(a: DateTime, b: DateTime) -> boolean
+    fn is_after(args: Vec<Value>) -> RuntimeResult<Value> {
+        match (args.first(), args.get(1)) {
+            (Some(Value::DateTime(a)), Some(Value::DateTime(b))) => Ok(Value::Bool(a > b)),
+            (Some(Value::Date(a)), Some(Value::Date(b))) => Ok(Value::Bool(a > b)),
+            (Some(Value::Time(a)), Some(Value::Time(b))) => Ok(Value::Bool(a > b)),
+            _ => Err(RuntimeError::new("isAfter: type mismatch")),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    fn extract_days(args: &[Value], idx: usize, fn_name: &str) -> RuntimeResult<i64> {
+        match args.get(idx) {
+            Some(Value::Date(d)) => Ok(*d),
+            Some(Value::DateTime(ms)) => Ok(ms.div_euclid(86_400_000)),
+            _ => Err(RuntimeError::new(format!(
+                "{}: expected Date or DateTime",
+                fn_name
+            ))),
+        }
+    }
+
+    fn extract_time_ms(args: &[Value], idx: usize, fn_name: &str) -> RuntimeResult<u32> {
+        match args.get(idx) {
+            Some(Value::Time(ms)) => Ok(*ms),
+            Some(Value::DateTime(ms)) => Ok(ms.rem_euclid(86_400_000) as u32),
+            _ => Err(RuntimeError::new(format!(
+                "{}: expected Time or DateTime",
+                fn_name
+            ))),
+        }
+    }
+
+    fn require_int(args: &[Value], idx: usize, fn_name: &str) -> RuntimeResult<i64> {
+        match args.get(idx) {
+            Some(Value::Int(n)) => Ok(*n),
+            Some(Value::Uint(n)) => Ok(*n as i64),
+            _ => Err(RuntimeError::new(format!(
+                "{}: argument {} must be an integer",
+                fn_name,
+                idx + 1
+            ))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,5 +945,194 @@ mod tests {
     fn test_registry_has_env() {
         let r = StdRegistry::new();
         assert!(r.has_module("tx:env"));
+    }
+
+    #[test]
+    fn test_time_now() {
+        let result = call("tx:time", "now", vec![]).unwrap();
+        assert!(matches!(result, Value::DateTime(_)));
+    }
+
+    #[test]
+    fn test_time_today() {
+        let result = call("tx:time", "today", vec![]).unwrap();
+        assert!(matches!(result, Value::Date(_)));
+    }
+
+    #[test]
+    fn test_time_current_time() {
+        let result = call("tx:time", "currentTime", vec![]).unwrap();
+        assert!(matches!(result, Value::Time(_)));
+    }
+
+    #[test]
+    fn test_time_date_construction() {
+        let result = call(
+            "tx:time",
+            "date",
+            vec![Value::Int(2024), Value::Int(1), Value::Int(15)],
+        )
+        .unwrap();
+        assert!(matches!(result, Value::Date(_)));
+        if let Value::Date(days) = result {
+            assert_eq!(days, typex_runtime::ymd_to_days(2024, 1, 15));
+        }
+    }
+
+    #[test]
+    fn test_time_datetime_construction() {
+        let result = call(
+            "tx:time",
+            "dateTime",
+            vec![
+                Value::Int(2024),
+                Value::Int(6),
+                Value::Int(15),
+                Value::Int(12),
+                Value::Int(30),
+                Value::Int(0),
+                Value::Int(0),
+            ],
+        )
+        .unwrap();
+        assert!(matches!(result, Value::DateTime(_)));
+    }
+
+    #[test]
+    fn test_time_year_month_day() {
+        let date = call(
+            "tx:time",
+            "date",
+            vec![Value::Int(2024), Value::Int(3), Value::Int(21)],
+        )
+        .unwrap();
+
+        let y = call("tx:time", "year", vec![date.clone()]).unwrap();
+        let m = call("tx:time", "month", vec![date.clone()]).unwrap();
+        let d = call("tx:time", "day", vec![date.clone()]).unwrap();
+
+        assert_eq!(y, Value::Int(2024));
+        assert_eq!(m, Value::Int(3));
+        assert_eq!(d, Value::Int(21));
+    }
+
+    #[test]
+    fn test_time_hour_minute_second() {
+        let t = call(
+            "tx:time",
+            "time",
+            vec![
+                Value::Int(14),
+                Value::Int(30),
+                Value::Int(45),
+                Value::Int(123),
+            ],
+        )
+        .unwrap();
+
+        let h = call("tx:time", "hour", vec![t.clone()]).unwrap();
+        let min = call("tx:time", "minute", vec![t.clone()]).unwrap();
+        let s = call("tx:time", "second", vec![t.clone()]).unwrap();
+        let ms = call("tx:time", "millisecond", vec![t.clone()]).unwrap();
+
+        assert_eq!(h, Value::Int(14));
+        assert_eq!(min, Value::Int(30));
+        assert_eq!(s, Value::Int(45));
+        assert_eq!(ms, Value::Int(123));
+    }
+
+    #[test]
+    fn test_time_format_date() {
+        let date = call(
+            "tx:time",
+            "date",
+            vec![Value::Int(2024), Value::Int(3), Value::Int(21)],
+        )
+        .unwrap();
+
+        let result = call(
+            "tx:time",
+            "format",
+            vec![date, Value::Str("YYYY-MM-DD".to_string())],
+        )
+        .unwrap();
+
+        assert_eq!(result, Value::Str("2024-03-21".to_string()));
+    }
+
+    #[test]
+    fn test_time_format_datetime() {
+        let dt = call(
+            "tx:time",
+            "dateTime",
+            vec![
+                Value::Int(2024),
+                Value::Int(6),
+                Value::Int(15),
+                Value::Int(14),
+                Value::Int(30),
+                Value::Int(0),
+                Value::Int(0),
+            ],
+        )
+        .unwrap();
+
+        let result = call(
+            "tx:time",
+            "format",
+            vec![dt, Value::Str("YYYY-MM-DD HH:mm:ss".to_string())],
+        )
+        .unwrap();
+
+        assert_eq!(result, Value::Str("2024-06-15 14:30:00".to_string()));
+    }
+
+    #[test]
+    fn test_time_add_days() {
+        let date = call(
+            "tx:time",
+            "date",
+            vec![Value::Int(2024), Value::Int(1), Value::Int(28)],
+        )
+        .unwrap();
+
+        let result = call("tx:time", "addDays", vec![date, Value::Int(5)]).unwrap();
+
+        let formatted = call(
+            "tx:time",
+            "format",
+            vec![result, Value::Str("YYYY-MM-DD".to_string())],
+        )
+        .unwrap();
+
+        assert_eq!(formatted, Value::Str("2024-02-02".to_string()));
+    }
+
+    #[test]
+    fn test_time_is_before_after() {
+        let a = call(
+            "tx:time",
+            "date",
+            vec![Value::Int(2024), Value::Int(1), Value::Int(1)],
+        )
+        .unwrap();
+        let b = call(
+            "tx:time",
+            "date",
+            vec![Value::Int(2024), Value::Int(12), Value::Int(31)],
+        )
+        .unwrap();
+
+        let before = call("tx:time", "isBefore", vec![a.clone(), b.clone()]).unwrap();
+        let after = call("tx:time", "isAfter", vec![a.clone(), b.clone()]).unwrap();
+
+        assert_eq!(before, Value::Bool(true));
+        assert_eq!(after, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_registry_has_time() {
+        let r = StdRegistry::new();
+        assert!(r.has_module("tx:time"));
     }
 }
