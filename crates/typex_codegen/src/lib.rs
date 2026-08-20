@@ -165,14 +165,22 @@ impl Compiler {
             }
         }
 
-        if let Some(ret_ty) = &f.return_type {
+        let is_result = f
+            .return_type
+            .as_ref()
+            .map(|t| matches!(t, TypeExpr::Generic(n, _) if n.name == "Result"))
+            .unwrap_or(false);
+
+        if is_result {
+            sig.returns.push(AbiParam::new(I64)); // tag
+            sig.returns.push(AbiParam::new(I64)); // payload
+        } else if let Some(ret_ty) = &f.return_type {
             let ty = type_from_ast(ret_ty);
             if let Some(cl_ty) = ty.cranelift_type() {
                 sig.returns.push(AbiParam::new(cl_ty));
             }
         }
 
-        // main is exported
         let linkage = if f.name.name == "main" {
             Linkage::Export
         } else {
@@ -190,13 +198,26 @@ impl Compiler {
         fn_ids: &HashMap<String, cranelift_module::FuncId>,
     ) -> CodegenResult<()> {
         let mut sig = self.module.make_signature();
+
         for param in &f.params {
             let ty = type_from_ast(&param.ty);
             if let Some(cl_ty) = ty.cranelift_type() {
                 sig.params.push(AbiParam::new(cl_ty));
             }
         }
-        if let Some(ret_ty) = &f.return_type {
+
+        // check if return type is Result<T,E>
+        let is_result = f
+            .return_type
+            .as_ref()
+            .map(|t| matches!(t, TypeExpr::Generic(n, _) if n.name == "Result"))
+            .unwrap_or(false);
+
+        if is_result {
+            // Result = (tag: i64, payload: i64)
+            sig.returns.push(AbiParam::new(I64)); // tag
+            sig.returns.push(AbiParam::new(I64)); // payload
+        } else if let Some(ret_ty) = &f.return_type {
             let ty = type_from_ast(ret_ty);
             if let Some(cl_ty) = ty.cranelift_type() {
                 sig.returns.push(AbiParam::new(cl_ty));
@@ -236,6 +257,12 @@ impl Compiler {
             .map(|t| type_from_ast(t))
             .unwrap_or(CgTy::Void);
 
+        let is_result = f
+            .return_type
+            .as_ref()
+            .map(|t| matches!(t, TypeExpr::Generic(n, _) if n.name == "Result"))
+            .unwrap_or(false);
+
         let mut fcx = FnCompiler {
             builder,
             vars,
@@ -245,6 +272,7 @@ impl Compiler {
             string_data: &mut self.string_data,
             terminated: false,
             arrays: HashMap::new(),
+            is_result_return: is_result,
         };
 
         fcx.compile_block(&f.body)?;
@@ -298,6 +326,7 @@ struct FnCompiler<'a> {
     string_data: &'a mut HashMap<String, cranelift_module::DataId>,
     terminated: bool,
     arrays: HashMap<String, (cranelift_codegen::ir::StackSlot, usize)>, // name -> (slot, length)
+    is_result_return: bool,
 }
 
 impl<'a> FnCompiler<'a> {
@@ -341,8 +370,24 @@ impl<'a> FnCompiler<'a> {
             Stmt::Return(expr, _) => {
                 match expr {
                     Some(e) => {
-                        let val = self.compile_expr(e)?;
-                        self.builder.ins().return_(&[val]);
+                        if self.is_result_return {
+                            // compile the expression to set __result_tag__ and __result_payload__
+                            self.compile_expr(e)?;
+                            let tag = if let Some(var) = self.vars.get("__result_tag__") {
+                                self.builder.use_var(*var)
+                            } else {
+                                self.builder.ins().iconst(I64, 0)
+                            };
+                            let payload = if let Some(var) = self.vars.get("__result_payload__") {
+                                self.builder.use_var(*var)
+                            } else {
+                                self.builder.ins().iconst(I64, 0)
+                            };
+                            self.builder.ins().return_(&[tag, payload]);
+                        } else {
+                            let val = self.compile_expr(e)?;
+                            self.builder.ins().return_(&[val]);
+                        }
                     }
                     None => {
                         self.builder.ins().return_(&[]);
@@ -350,6 +395,7 @@ impl<'a> FnCompiler<'a> {
                 }
                 self.terminated = true;
             }
+            Stmt::Match(m) => self.compile_match(m)?,
             Stmt::Let(l) => {
                 if let Some(Expr::Array(elements, _)) = &l.value {
                     self.compile_array_let(&l.name.name, elements)?;
@@ -391,8 +437,122 @@ impl<'a> FnCompiler<'a> {
             }
             Stmt::Switch(s) => self.compile_switch(s)?,
             Stmt::For(f) => self.compile_for(f)?,
-            _ => {}
         }
+        Ok(())
+    }
+
+    fn compile_match(&mut self, m: &MatchExpr) -> CodegenResult<()> {
+        self.compile_expr(&m.value)?;
+
+        let tag = if let Some(var) = self.vars.get("__result_tag__") {
+            self.builder.use_var(*var)
+        } else {
+            return Err(CodegenError("match: no result tag found".to_string()));
+        };
+
+        let payload = if let Some(var) = self.vars.get("__result_payload__") {
+            self.builder.use_var(*var)
+        } else {
+            self.builder.ins().iconst(I64, 0)
+        };
+
+        let merge_block = self.builder.create_block();
+        let mut any_arm_falls_through = false;
+
+        // collect arms first so we know how many there are
+        let arms: Vec<_> = m.arms.iter().collect();
+        let num_arms = arms.len();
+
+        for (i, arm) in arms.iter().enumerate() {
+            let is_last = i == num_arms - 1;
+
+            match &arm.pattern {
+                Pattern::Ok(binding) => {
+                    let ok_block = self.builder.create_block();
+                    let next_block = if is_last {
+                        merge_block
+                    } else {
+                        self.builder.create_block()
+                    };
+
+                    let zero = self.builder.ins().iconst(I64, 0);
+                    let is_ok = self.builder.ins().icmp(IntCC::Equal, tag, zero);
+                    self.builder
+                        .ins()
+                        .brif(is_ok, ok_block, &[], next_block, &[]);
+
+                    self.builder.switch_to_block(ok_block);
+                    self.builder.seal_block(ok_block);
+
+                    let binding_var = self.new_var(I64);
+                    self.builder.def_var(binding_var, payload);
+                    self.vars.insert(binding.name.clone(), binding_var);
+
+                    self.compile_expr(&arm.body)?;
+                    if !self.terminated {
+                        self.builder.ins().jump(merge_block, &[]);
+                        any_arm_falls_through = true;
+                    }
+                    self.terminated = false;
+
+                    if !is_last {
+                        self.builder.switch_to_block(next_block);
+                        self.builder.seal_block(next_block);
+                    }
+                }
+                Pattern::Err(binding) => {
+                    let err_block = self.builder.create_block();
+                    let next_block = if is_last {
+                        merge_block
+                    } else {
+                        self.builder.create_block()
+                    };
+
+                    let one = self.builder.ins().iconst(I64, 1);
+                    let is_err = self.builder.ins().icmp(IntCC::Equal, tag, one);
+                    self.builder
+                        .ins()
+                        .brif(is_err, err_block, &[], next_block, &[]);
+
+                    self.builder.switch_to_block(err_block);
+                    self.builder.seal_block(err_block);
+
+                    let binding_var = self.new_var(I64);
+                    self.builder.def_var(binding_var, payload);
+                    self.vars.insert(binding.name.clone(), binding_var);
+
+                    self.compile_expr(&arm.body)?;
+                    if !self.terminated {
+                        self.builder.ins().jump(merge_block, &[]);
+                        any_arm_falls_through = true;
+                    }
+                    self.terminated = false;
+
+                    if !is_last {
+                        self.builder.switch_to_block(next_block);
+                        self.builder.seal_block(next_block);
+                    }
+                }
+                Pattern::Wildcard => {
+                    self.compile_expr(&arm.body)?;
+                    if !self.terminated {
+                        self.builder.ins().jump(merge_block, &[]);
+                        any_arm_falls_through = true;
+                    }
+                    self.terminated = false;
+                }
+                _ => {}
+            }
+        }
+
+        // seal and switch to merge block
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+
+        if !any_arm_falls_through {
+            self.terminated = true;
+        }
+
         Ok(())
     }
 
@@ -804,12 +964,60 @@ impl<'a> FnCompiler<'a> {
                     }
                 }
 
+                // Ok/Err constructors
+                if i.name == "Ok" {
+                    let payload = if arg_vals.is_empty() {
+                        self.builder.ins().iconst(I64, 0)
+                    } else {
+                        arg_vals[0]
+                    };
+                    let tag = self.builder.ins().iconst(I64, 0); // 0 = Ok
+                    // store as a pair — return both values
+                    // for now store in two vars accessible to match
+                    let tag_var = self.new_var(I64);
+                    let payload_var = self.new_var(I64);
+                    self.builder.def_var(tag_var, tag);
+                    self.builder.def_var(payload_var, payload);
+                    self.vars.insert("__result_tag__".to_string(), tag_var);
+                    self.vars
+                        .insert("__result_payload__".to_string(), payload_var);
+                    return Ok(tag); // return tag as the "value" for assignment
+                }
+                if i.name == "Err" {
+                    let payload = if arg_vals.is_empty() {
+                        self.builder.ins().iconst(I64, 0)
+                    } else {
+                        arg_vals[0]
+                    };
+                    let tag = self.builder.ins().iconst(I64, 1); // 1 = Err
+                    let tag_var = self.new_var(I64);
+                    let payload_var = self.new_var(I64);
+                    self.builder.def_var(tag_var, tag);
+                    self.builder.def_var(payload_var, payload);
+                    self.vars.insert("__result_tag__".to_string(), tag_var);
+                    self.vars
+                        .insert("__result_payload__".to_string(), payload_var);
+                    return Ok(tag);
+                }
+
                 // user function call
                 if let Some(&fn_id) = self.fn_ids.get(&i.name) {
                     let fn_ref = self.module.declare_func_in_func(fn_id, self.builder.func);
                     let call = self.builder.ins().call(fn_ref, &arg_vals);
                     let results = self.builder.inst_results(call);
-                    if results.is_empty() {
+                    if results.len() == 2 {
+                        // Result<T,E> — store tag and payload
+                        let tag = results[0];
+                        let payload = results[1];
+                        let tag_var = self.new_var(I64);
+                        let payload_var = self.new_var(I64);
+                        self.builder.def_var(tag_var, tag);
+                        self.builder.def_var(payload_var, payload);
+                        self.vars.insert("__result_tag__".to_string(), tag_var);
+                        self.vars
+                            .insert("__result_payload__".to_string(), payload_var);
+                        return Ok(tag);
+                    } else if results.is_empty() {
                         return Ok(self.builder.ins().iconst(I64, 0));
                     }
                     return Ok(results[0]);
