@@ -159,6 +159,7 @@ fn cmd_build(path: &str, output: Option<&str>) {
         .arg(shim_obj)
         .arg("-o")
         .arg(&bin_path)
+        .arg("-Wl,-w") // suppress linker warnings
         .status();
 
     std::fs::remove_file(&obj_path).ok();
