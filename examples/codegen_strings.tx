@@ -1,0 +1,19 @@
+function greet(name: string): string {
+    const greeting: string = "Hello, ";
+    return greeting + name + "!";
+}
+
+function main(): int {
+    const name: string = "TypeX";
+    const msg: string = greet(name);
+    println(msg);
+
+    const a: string = "foo";
+    const b: string = "bar";
+    const c: string = a + b;
+    println(c);
+
+    println("direct literal");
+
+    return 0;
+}

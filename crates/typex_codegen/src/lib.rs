@@ -45,6 +45,7 @@ enum CgTy {
     Int,   // i64
     Float, // f64
     Bool,  // i8
+    Str,   // pointer to null-terminated string
     Void,
 }
 
@@ -54,6 +55,7 @@ impl CgTy {
             CgTy::Int => Some(I64),
             CgTy::Float => Some(F64),
             CgTy::Bool => Some(I8),
+            CgTy::Str => Some(I64), // pointer
             CgTy::Void => None,
         }
     }
@@ -66,6 +68,7 @@ fn type_from_ast(ty: &TypeExpr) -> CgTy {
             "uint" | "uint64" | "uint32" | "uint16" | "uint8" => CgTy::Int,
             "float" | "float64" | "float32" => CgTy::Float,
             "boolean" => CgTy::Bool,
+            "string" => CgTy::Str,
             _ => CgTy::Void,
         },
         _ => CgTy::Void,
@@ -266,6 +269,7 @@ impl Compiler {
         let mut fcx = FnCompiler {
             builder,
             vars,
+            var_types: HashMap::new(),
             var_idx,
             module: &mut self.module,
             fn_ids,
@@ -286,6 +290,11 @@ impl Compiler {
                 }
                 CgTy::Float => {
                     let zero = fcx.builder.ins().f64const(0.0);
+                    fcx.builder.ins().return_(&[zero]);
+                }
+                CgTy::Str => {
+                    // return null pointer for empty string
+                    let zero = fcx.builder.ins().iconst(I64, 0);
                     fcx.builder.ins().return_(&[zero]);
                 }
                 CgTy::Void => {
@@ -320,6 +329,7 @@ impl Compiler {
 struct FnCompiler<'a> {
     builder: FunctionBuilder<'a>,
     vars: HashMap<String, Variable>,
+    var_types: HashMap<String, CgTy>, // track declared types
     var_idx: usize,
     module: &'a mut ObjectModule,
     fn_ids: &'a HashMap<String, cranelift_module::FuncId>,
@@ -348,6 +358,27 @@ impl<'a> FnCompiler<'a> {
         let id = self.module.declare_anonymous_data(false, false)?;
         self.module.define_data(id, &data)?;
         self.string_data.insert(s.to_string(), id);
+        Ok(id)
+    }
+
+    fn declare_runtime_fn(
+        &mut self,
+        name: &str,
+        params: &[cranelift_codegen::ir::Type],
+        ret: Option<cranelift_codegen::ir::Type>,
+    ) -> CodegenResult<cranelift_module::FuncId> {
+        let mut sig = self.module.make_signature();
+        sig.call_conv = CallConv::AppleAarch64;
+        for &p in params {
+            sig.params.push(AbiParam::new(p));
+        }
+        if let Some(r) = ret {
+            sig.returns.push(AbiParam::new(r));
+        }
+        let id = self
+            .module
+            .declare_function(name, Linkage::Import, &sig)
+            .map_err(|e| CodegenError(e.to_string()))?;
         Ok(id)
     }
 
@@ -400,11 +431,8 @@ impl<'a> FnCompiler<'a> {
                 if let Some(Expr::Array(elements, _)) = &l.value {
                     self.compile_array_let(&l.name.name, elements)?;
                 } else {
-                    let cl_ty =
-                        l.ty.as_ref()
-                            .map(|t| type_from_ast(t))
-                            .and_then(|t| t.cranelift_type())
-                            .unwrap_or(I64);
+                    let cg_ty = l.ty.as_ref().map(|t| type_from_ast(t)).unwrap_or(CgTy::Int);
+                    let cl_ty = cg_ty.cranelift_type().unwrap_or(I64);
                     let var = self.new_var(cl_ty);
                     if let Some(expr) = &l.value {
                         let val = self.compile_expr(expr)?;
@@ -414,21 +442,20 @@ impl<'a> FnCompiler<'a> {
                         self.builder.def_var(var, zero);
                     }
                     self.vars.insert(l.name.name.clone(), var);
+                    self.var_types.insert(l.name.name.clone(), cg_ty);
                 }
             }
             Stmt::Const(c) => {
                 if let Expr::Array(elements, _) = &c.value {
                     self.compile_array_let(&c.name.name, elements)?;
                 } else {
-                    let cl_ty =
-                        c.ty.as_ref()
-                            .map(|t| type_from_ast(t))
-                            .and_then(|t| t.cranelift_type())
-                            .unwrap_or(I64);
+                    let cg_ty = c.ty.as_ref().map(|t| type_from_ast(t)).unwrap_or(CgTy::Int);
+                    let cl_ty = cg_ty.cranelift_type().unwrap_or(I64);
                     let var = self.new_var(cl_ty);
                     let val = self.compile_expr(&c.value)?;
                     self.builder.def_var(var, val);
                     self.vars.insert(c.name.name.clone(), var);
+                    self.var_types.insert(c.name.name.clone(), cg_ty);
                 }
             }
             Stmt::If(i) => self.compile_if(i)?,
@@ -821,6 +848,15 @@ impl<'a> FnCompiler<'a> {
         }
     }
 
+    fn expr_is_string(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Lit(Lit::Str(_, _)) => true,
+            Expr::Ident(i) => matches!(self.var_types.get(&i.name), Some(CgTy::Str)),
+            Expr::BinOp(l, BinOp::Add, r, _) => self.expr_is_string(l) || self.expr_is_string(r),
+            _ => false,
+        }
+    }
+
     fn compile_binop(
         &mut self,
         l: &Expr,
@@ -831,7 +867,21 @@ impl<'a> FnCompiler<'a> {
         let rv = self.compile_expr(r)?;
 
         Ok(match op {
-            BinOp::Add => self.builder.ins().iadd(lv, rv),
+            BinOp::Add => {
+                let is_string_add = self.expr_is_string(l) || self.expr_is_string(r);
+                if is_string_add {
+                    let concat_id =
+                        self.declare_runtime_fn("tx_str_concat", &[I64, I64], Some(I64))?;
+                    let concat_ref = self
+                        .module
+                        .declare_func_in_func(concat_id, self.builder.func);
+                    let call = self.builder.ins().call(concat_ref, &[lv, rv]);
+                    let results = self.builder.inst_results(call);
+                    results[0]
+                } else {
+                    self.builder.ins().iadd(lv, rv)
+                }
+            }
             BinOp::Sub => self.builder.ins().isub(lv, rv),
             BinOp::Mul => self.builder.ins().imul(lv, rv),
             BinOp::Div => self.builder.ins().sdiv(lv, rv),
@@ -901,9 +951,10 @@ impl<'a> FnCompiler<'a> {
                 // println - call puts
                 if i.name == "println" || i.name == "print" {
                     if let Some(Expr::Lit(Lit::Str(s, _))) = args.first() {
-                        // for now: if no args, use puts; if one int arg, use printf with explicit cast
+                        let s = s.clone();
+
+                        // no substitution args - use puts/tx_puts
                         if args.len() == 1 {
-                            // no substitution args - just puts
                             let fmt = if i.name == "println" {
                                 format!("{}\n", s)
                             } else {
@@ -912,55 +963,64 @@ impl<'a> FnCompiler<'a> {
                             let data_id = self.define_string(&fmt)?;
                             let gv = self.module.declare_data_in_func(data_id, self.builder.func);
                             let ptr = self.builder.ins().symbol_value(I64, gv);
-
-                            let puts_id = self
-                                .module
-                                .declare_function("puts", Linkage::Import, &{
-                                    let mut sig = self.module.make_signature();
-                                    sig.params.push(AbiParam::new(I64));
-                                    sig.returns.push(AbiParam::new(I32));
-                                    sig
-                                })
-                                .map_err(|e| CodegenError(e.to_string()))?;
-
+                            let puts_id = self.declare_runtime_fn("puts", &[I64], Some(I32))?;
                             let puts_ref =
                                 self.module.declare_func_in_func(puts_id, self.builder.func);
                             let _call = self.builder.ins().call(puts_ref, &[ptr]);
                             return Ok(self.builder.ins().iconst(I64, 0));
-                        } else {
-                            // has args - use puts for the string part + itoa approach
-                            // compile the single int arg
-                            let arg_val = self.compile_expr(&args[1])?;
+                        }
+
+                        // one substitution arg - use tx_print_int or tx_print_str shim
+                        if args.len() == 2 {
+                            let arg = &args[1];
+                            let is_str = self.expr_is_string(arg);
+                            let arg_val = self.compile_expr(arg)?;
 
                             let fmt = if i.name == "println" {
-                                format!("{}\n", s.replace("{}", "%lld"))
+                                format!("{}\n", s.replace("{}", if is_str { "%s" } else { "%lld" }))
                             } else {
-                                s.replace("{}", "%lld")
+                                s.replace("{}", if is_str { "%s" } else { "%lld" })
                             };
 
                             let data_id = self.define_string(&fmt)?;
                             let gv = self.module.declare_data_in_func(data_id, self.builder.func);
                             let ptr = self.builder.ins().symbol_value(I64, gv);
 
-                            // declare printf with exact signature - no variadic
-                            let mut printf_sig = self.module.make_signature();
-                            printf_sig.call_conv = CallConv::AppleAarch64;
-                            printf_sig.params.push(AbiParam::new(I64));
-                            printf_sig.params.push(AbiParam::new(I64));
-                            printf_sig.returns.push(AbiParam::new(I32));
-
-                            let printf_id = self
-                                .module
-                                .declare_function("tx_print_int", Linkage::Import, &printf_sig)
-                                .map_err(|e| CodegenError(e.to_string()))?;
-
-                            let printf_ref = self
-                                .module
-                                .declare_func_in_func(printf_id, self.builder.func);
-
-                            let _call = self.builder.ins().call(printf_ref, &[ptr, arg_val]);
+                            let shim_name = if is_str {
+                                "tx_print_str"
+                            } else {
+                                "tx_print_int"
+                            };
+                            let shim_id = self.declare_runtime_fn(shim_name, &[I64, I64], None)?;
+                            let shim_ref =
+                                self.module.declare_func_in_func(shim_id, self.builder.func);
+                            let _call = self.builder.ins().call(shim_ref, &[ptr, arg_val]);
                             return Ok(self.builder.ins().iconst(I64, 0));
                         }
+
+                        // multiple args - fall through to error for now
+                        return Err(CodegenError(
+            "println with more than one substitution arg not yet supported in codegen".to_string()
+        ));
+                    } else {
+                        // string variable as first arg
+                        let str_val = self.compile_expr(args.first().ok_or_else(|| {
+                            CodegenError("println requires at least one argument".to_string())
+                        })?)?;
+
+                        if i.name == "println" {
+                            let puts_id = self.declare_runtime_fn("puts", &[I64], Some(I32))?;
+                            let puts_ref =
+                                self.module.declare_func_in_func(puts_id, self.builder.func);
+                            let _call = self.builder.ins().call(puts_ref, &[str_val]);
+                        } else {
+                            let fputs_id = self.declare_runtime_fn("tx_print_str", &[I64], None)?;
+                            let fputs_ref = self
+                                .module
+                                .declare_func_in_func(fputs_id, self.builder.func);
+                            let _call = self.builder.ins().call(fputs_ref, &[str_val]);
+                        }
+                        return Ok(self.builder.ins().iconst(I64, 0));
                     }
                 }
 
