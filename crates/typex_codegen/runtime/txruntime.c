@@ -55,3 +55,29 @@ void tx_print_str(const char *fmt, const char *s)
 {
     printf(fmt, s);
 }
+
+// Multi-arg print shims (non-variadic, ARM64 safe)
+void tx_print_2(const char *fmt, long long a, long long b)
+{
+    printf(fmt, a, b);
+}
+
+void tx_print_3(const char *fmt, long long a, long long b, long long c)
+{
+    printf(fmt, a, b, c);
+}
+
+void tx_print_4(const char *fmt, long long a, long long b, long long c, long long d)
+{
+    printf(fmt, a, b, c, d);
+}
+
+void tx_print_str2(const char *fmt, const char *a, long long b)
+{
+    printf(fmt, a, b);
+}
+
+void tx_print_2str(const char *fmt, long long a, const char *b)
+{
+    printf(fmt, a, b);
+}

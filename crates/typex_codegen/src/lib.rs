@@ -997,11 +997,69 @@ impl<'a> FnCompiler<'a> {
                             let _call = self.builder.ins().call(shim_ref, &[ptr, arg_val]);
                             return Ok(self.builder.ins().iconst(I64, 0));
                         }
+                        // multiple args
+                        let mut fmt_out = s.clone();
+                        let mut arg_vals_compiled = Vec::new();
+                        let mut arg_types = Vec::new();
 
-                        // multiple args - fall through to error for now
-                        return Err(CodegenError(
-            "println with more than one substitution arg not yet supported in codegen".to_string()
-        ));
+                        for arg in args.iter().skip(1) {
+                            let is_str = self.expr_is_string(arg);
+                            let spec = if is_str { "%s" } else { "%lld" };
+                            if let Some(pos) = fmt_out.find("{}") {
+                                fmt_out.replace_range(pos..pos + 2, spec);
+                            }
+                            let val = self.compile_expr(arg)?;
+                            arg_vals_compiled.push(val);
+                            arg_types.push(is_str);
+                        }
+                        if i.name == "println" {
+                            fmt_out.push('\n');
+                        }
+
+                        let data_id = self.define_string(&fmt_out)?;
+                        let gv = self.module.declare_data_in_func(data_id, self.builder.func);
+                        let ptr = self.builder.ins().symbol_value(I64, gv);
+
+                        let num_args = arg_vals_compiled.len();
+                        let shim_name = match num_args {
+                            1 => {
+                                if arg_types[0] {
+                                    "tx_print_str"
+                                } else {
+                                    "tx_print_int"
+                                }
+                            }
+                            2 => {
+                                match (arg_types[0], arg_types[1]) {
+                                    (false, false) => "tx_print_2",
+                                    (true, false) => "tx_print_str2",
+                                    (false, true) => "tx_print_2str",
+                                    (true, true) => "tx_print_2str", // best effort
+                                }
+                            }
+                            3 => "tx_print_3",
+                            4 => "tx_print_4",
+                            _ => {
+                                return Err(CodegenError(format!(
+                                    "println with {} args not yet supported in codegen",
+                                    num_args
+                                )));
+                            }
+                        };
+
+                        // build param types: fmt ptr + one I64 per arg
+                        let param_types: Vec<cranelift_codegen::ir::Type> = std::iter::once(I64)
+                            .chain(std::iter::repeat(I64).take(num_args))
+                            .collect();
+
+                        let shim_id = self.declare_runtime_fn(shim_name, &param_types, None)?;
+                        let shim_ref = self.module.declare_func_in_func(shim_id, self.builder.func);
+
+                        let mut all_args = vec![ptr];
+                        all_args.extend(arg_vals_compiled);
+
+                        let _call = self.builder.ins().call(shim_ref, &all_args);
+                        return Ok(self.builder.ins().iconst(I64, 0));
                     } else {
                         // string variable as first arg
                         let str_val = self.compile_expr(args.first().ok_or_else(|| {

@@ -1,0 +1,23 @@
+function fibonacci(n: int): int {
+    if (n <= 0) { return 0; }
+    if (n == 1) { return 1; }
+    const a: int = fibonacci(n - 1);
+    const b: int = fibonacci(n - 2);
+    return a + b;
+}
+
+function main(): int {
+    const result0: int = fibonacci(0);
+    println("fibonacci({}) = {}", 0, result0);
+
+    const result5: int = fibonacci(5);
+    println("fibonacci({}) = {}", 5, result5);
+
+    const result10: int = fibonacci(10);
+    println("fibonacci({}) = {}", 10, result10);
+
+    const name: string = "TypeX";
+    println("Hello from {}!", name);
+
+    return 0;
+}
