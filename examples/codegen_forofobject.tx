@@ -1,0 +1,7 @@
+function main(): int {
+    for (let {key, value} of {name: "TypeX", version: "1.0", author: "Lindsay"}) {
+        println("{}: {}", key, value);
+    }
+
+    return 0;
+}

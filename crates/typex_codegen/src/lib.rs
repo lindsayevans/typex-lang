@@ -781,9 +781,54 @@ impl<'a> FnCompiler<'a> {
 
                 Ok(())
             }
-            ForStmt::Object { .. } => Err(CodegenError(
-                "for...of object loops not yet supported in codegen".to_string(),
-            )),
+            ForStmt::Object {
+                key,
+                value,
+                iter,
+                body,
+                ..
+            } => {
+                // only support object literals for now
+                let pairs = match iter.as_ref() {
+                    Expr::Record(fields, _) => fields.clone(),
+                    _ => {
+                        return Err(CodegenError(
+                            "for...of codegen only supports object literals".to_string(),
+                        ));
+                    }
+                };
+
+                // unroll: compile body once per key-value pair
+                for (k, v) in &pairs {
+                    // bind key
+                    if let Some(key_ident) = key {
+                        let key_str = self.define_string(&k.name)?;
+                        let gv = self.module.declare_data_in_func(key_str, self.builder.func);
+                        let key_ptr = self.builder.ins().symbol_value(I64, gv);
+                        let key_var = self.new_var(I64);
+                        self.builder.def_var(key_var, key_ptr);
+                        self.vars.insert(key_ident.name.clone(), key_var);
+                        self.var_types.insert(key_ident.name.clone(), CgTy::Str);
+                    }
+                    // bind value
+                    if let Some(val_ident) = value {
+                        let val = self.compile_expr(v)?;
+                        let val_var = self.new_var(I64);
+                        self.builder.def_var(val_var, val);
+                        self.vars.insert(val_ident.name.clone(), val_var);
+                        let is_str = self.expr_is_string(v);
+                        self.var_types.insert(
+                            val_ident.name.clone(),
+                            if is_str { CgTy::Str } else { CgTy::Int },
+                        );
+                    }
+                    self.compile_block(body)?;
+                    if self.terminated {
+                        break;
+                    }
+                }
+                Ok(())
+            }
             ForStmt::Str { .. } => Err(CodegenError(
                 "for...in string loops not yet supported in codegen".to_string(),
             )),
